@@ -1,7 +1,3 @@
-import shutil
-
-import matplotlib.pyplot as plt
-
 from __init__ import *
 from __global__ import *
 import rasterio
@@ -26,7 +22,7 @@ class GenPatch:
         dstSRS = GEDI.Preprocess_GEDI().get_WKT()
         # hls_path = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km_224.tif')
         # hls_path = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
-        hls_path = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7.tif')
+        hls_path = join(HLS.Preprocess_HLS().data_dir, 'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7.tif')
         # outdir_hls = join(self.data_dir,'patches/hls_1km')
         outdir_hls = join(self.data_dir,'patches/hls_30m')
         T.mkdir(outdir_hls,force=True)
@@ -101,9 +97,9 @@ class GenPatch:
 
     @Decorator.shutup_gdal
     def generate_patches_GEDI(self):
-        import HLS, GEDI
+        import GEDI
         dstSRS = GEDI.Preprocess_GEDI().get_WKT()
-        gedi_path = join(GEDI.Preprocess_GEDI().data_dir,'tif','gedi_2019-2023_clipped.tif')
+        gedi_path = join(GEDI.Preprocess_GEDI().data_dir, 'tif', 'gedi_2019-2023_clipped.tif')
         outdir_hls = join(self.data_dir,'patches/gedi')
         T.mkdir(outdir_hls,force=True)
 

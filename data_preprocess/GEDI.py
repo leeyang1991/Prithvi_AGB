@@ -1,5 +1,3 @@
-import matplotlib.pyplot as plt
-
 from __init__ import *
 from __global__ import *
 this_script_root = join(data_root,'GEDI')
@@ -65,7 +63,7 @@ class Preprocess_GEDI:
     @Decorator.shutup_gdal
     def crop(self):
         import HLS
-        HLS_tif_dir = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands')
+        HLS_tif_dir = join(HLS.Preprocess_HLS().data_dir, 'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands')
         GEDI_fpath = join(self.data_dir,'tif','gedi_2019-2023.tif')
         fpath = join(HLS_tif_dir,'B2-B7_1km.tif')
         array, originX, originY, pixelWidth, pixelHeight, projection_wkt = self.raster2array(fpath)
@@ -91,7 +89,6 @@ class Preprocess_GEDI:
     def padding_224(self):
         fpath = join(self.data_dir,'tif/gedi_2019-2023_clipped.tif')
         outf = join(self.data_dir,'tif/gedi_2019-2023_clipped_224.tif')
-        from rasterio.transform import Affine
 
         with rasterio.open(fpath) as src:
             profile = src.profile
