@@ -9,56 +9,9 @@ class Preprocess_GEDI:
         pass
 
     def run(self):
-        # self.crop()
+        self.crop()
         self.padding_224()
         pass
-
-    def get_WKT(self):
-        projection_wkt = '''
-        PROJCRS["WGS 84 / NSIDC EASE-Grid 2.0 Global",
-            BASEGEOGCRS["WGS 84",
-                ENSEMBLE["World Geodetic System 1984 ensemble",
-                    MEMBER["World Geodetic System 1984 (Transit)"],
-                    MEMBER["World Geodetic System 1984 (G730)"],
-                    MEMBER["World Geodetic System 1984 (G873)"],
-                    MEMBER["World Geodetic System 1984 (G1150)"],
-                    MEMBER["World Geodetic System 1984 (G1674)"],
-                    MEMBER["World Geodetic System 1984 (G1762)"],
-                    ELLIPSOID["WGS 84",6378137,298.257223563,
-                        LENGTHUNIT["metre",1]],
-                    ENSEMBLEACCURACY[2.0]],
-                PRIMEM["Greenwich",0,
-                    ANGLEUNIT["degree",0.0174532925199433]],
-                ID["EPSG",4326]],
-            CONVERSION["US NSIDC EASE-Grid 2.0 Global",
-                METHOD["Lambert Cylindrical Equal Area",
-                    ID["EPSG",9835]],
-                PARAMETER["Latitude of 1st standard parallel",30,
-                    ANGLEUNIT["degree",0.0174532925199433],
-                    ID["EPSG",8823]],
-                PARAMETER["Longitude of natural origin",0,
-                    ANGLEUNIT["degree",0.0174532925199433],
-                    ID["EPSG",8802]],
-                PARAMETER["False easting",0,
-                    LENGTHUNIT["metre",1],
-                    ID["EPSG",8806]],
-                PARAMETER["False northing",0,
-                    LENGTHUNIT["metre",1],
-                    ID["EPSG",8807]]],
-            CS[Cartesian,2],
-                AXIS["easting (X)",east,
-                    ORDER[1],
-                    LENGTHUNIT["metre",1]],
-                AXIS["northing (Y)",north,
-                    ORDER[2],
-                    LENGTHUNIT["metre",1]],
-            USAGE[
-                SCOPE["Environmental science - used as basis for EASE grid."],
-                AREA["World between 86°S and 86°N."],
-                BBOX[-86,-180,86,180]],
-            ID["EPSG",6933]]'''
-
-        return projection_wkt
 
     @Decorator.shutup_gdal
     def crop(self):
@@ -72,8 +25,8 @@ class Preprocess_GEDI:
         bottom = originY + (array.shape[0]) * pixelHeight
         top = originY
         crop_window = (left, bottom, right, top)
-        dstSRS = self.get_WKT()
-        res = 1000.89502334966744
+        dstSRS = global_gedi_WKT()
+        res = global_res_gedi
         self.clip_tif_using_coordinates(GEDI_fpath, join(self.data_dir,'tif','gedi_2019-2023_clipped.tif'), crop_window,dstSRS,res)
         print('done')
 

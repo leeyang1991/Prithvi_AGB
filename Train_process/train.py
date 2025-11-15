@@ -186,53 +186,6 @@ class UNetDecoder1(nn.Module):
         # exit()
         return self.decoder(x)
 
-def get_WKT():
-    projection_wkt = '''
-    PROJCRS["WGS 84 / NSIDC EASE-Grid 2.0 Global",
-        BASEGEOGCRS["WGS 84",
-            ENSEMBLE["World Geodetic System 1984 ensemble",
-                MEMBER["World Geodetic System 1984 (Transit)"],
-                MEMBER["World Geodetic System 1984 (G730)"],
-                MEMBER["World Geodetic System 1984 (G873)"],
-                MEMBER["World Geodetic System 1984 (G1150)"],
-                MEMBER["World Geodetic System 1984 (G1674)"],
-                MEMBER["World Geodetic System 1984 (G1762)"],
-                ELLIPSOID["WGS 84",6378137,298.257223563,
-                    LENGTHUNIT["metre",1]],
-                ENSEMBLEACCURACY[2.0]],
-            PRIMEM["Greenwich",0,
-                ANGLEUNIT["degree",0.0174532925199433]],
-            ID["EPSG",4326]],
-        CONVERSION["US NSIDC EASE-Grid 2.0 Global",
-            METHOD["Lambert Cylindrical Equal Area",
-                ID["EPSG",9835]],
-            PARAMETER["Latitude of 1st standard parallel",30,
-                ANGLEUNIT["degree",0.0174532925199433],
-                ID["EPSG",8823]],
-            PARAMETER["Longitude of natural origin",0,
-                ANGLEUNIT["degree",0.0174532925199433],
-                ID["EPSG",8802]],
-            PARAMETER["False easting",0,
-                LENGTHUNIT["metre",1],
-                ID["EPSG",8806]],
-            PARAMETER["False northing",0,
-                LENGTHUNIT["metre",1],
-                ID["EPSG",8807]]],
-        CS[Cartesian,2],
-            AXIS["easting (X)",east,
-                ORDER[1],
-                LENGTHUNIT["metre",1]],
-            AXIS["northing (Y)",north,
-                ORDER[2],
-                LENGTHUNIT["metre",1]],
-        USAGE[
-            SCOPE["Environmental science - used as basis for EASE grid."],
-            AREA["World between 86°S and 86°N."],
-            BBOX[-86,-180,86,180]],
-        ID["EPSG",6933]]'''
-
-    return projection_wkt
-
 
 def init_model():
     model = terratorch.tasks.PixelwiseRegressionTask(
@@ -281,15 +234,18 @@ def init_model():
     return model
 
 def init_trainer():
+    trainer_dir = join(this_root,'model','trainer')
+    T.mkdir(trainer_dir,force=True)
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath="output/agb/checkpoints/",
+        # dirpath="output/agb/checkpoints/",
+        dirpath=join(trainer_dir,'checkpoints'),
         mode="min",
         monitor="val/RMSE",  # Variable to monitor
         filename="best-{epoch:02d}",
     )
 
     trainer = pl.Trainer(
-        accelerator="auto",
+        accelerator=global_device,
         strategy="auto",
         devices=1,  # Deactivate multi-gpu because it often fails in notebooks
         precision='bf16-mixed',  # Speed up training
@@ -300,7 +256,8 @@ def init_trainer():
         enable_checkpointing=True,
         # callbacks=[checkpoint_callback, pl.callbacks.RichProgressBar()],
         callbacks=[checkpoint_callback, pl.callbacks.TQDMProgressBar()],
-        default_root_dir="output/agb",
+        # default_root_dir="output/agb",
+        default_root_dir=trainer_dir,
         detect_anomaly=True,
     )
     return trainer
@@ -351,7 +308,7 @@ def predict_agb(ckpt_path):
 def save_pred_image(preds_image, patch_filename):
     outdir = join(results_root,'agb_pred','patch_30m')
     T.mkdir(outdir,force=True)
-    dstSRS = get_WKT()
+    dstSRS = global_gedi_WKT()
     pred_fpath = join(outdir,patch_filename.split('/')[-1])
     # exit()
     ds = gdal.Open(patch_filename)
@@ -371,7 +328,7 @@ def save_pred_image(preds_image, patch_filename):
     out_ds.SetProjection(dstSRS)
         # band = hls_patch[idx-1]
     out_ds.GetRasterBand(1).WriteArray(preds_image)
-    out_ds.GetRasterBand(1).SetNoDataValue(-999999)
+    out_ds.GetRasterBand(1).SetNoDataValue(global_nodata_value)
     # out_band.FlushCache()
 
     out_ds = None
@@ -380,8 +337,8 @@ def save_pred_image(preds_image, patch_filename):
 
 @Decorator.shutup_gdal
 def mosaic_spatial_tifs_no_overlap():
-    nodata_value = -999999
-    dstSRS = get_WKT()
+    nodata_value = global_nodata_value
+    dstSRS = global_gedi_WKT()
     fdir = '/home/yangli/Projects_Data/terratorch_learn/pred'
     outdir = '/home/yangli/Projects_Data/terratorch_learn/pred_mosaic'
     outf = join(outdir,f'mosaic5.tif')
@@ -461,8 +418,8 @@ def mosaic_spatial_tifs_no_overlap():
 def mosaic_spatial_tifs_overlap():
     patch_size = 224
     stride = 112
-    nodata_value = -999999
-    dstSRS = get_WKT()
+    nodata_value = global_nodata_value
+    dstSRS = global_gedi_WKT()
     fdir = join(results_root,'agb_pred','patch_30m')
     outdir = join(results_root,'agb_pred','mosaic')
     outf = join(outdir,f'agb_30m.tif')
@@ -554,8 +511,8 @@ def mosaic_spatial_tifs_overlap():
 def resample_30_to_1km():
     fpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m.tif')
     outpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m_resample_1km.tif')
-    res = 1000.89502334966744
-    SRS = get_WKT()
+    res = global_res_gedi
+    SRS = global_gedi_WKT()
     ToRaster().resample_reproj(fpath, outpath, res, srcSRS=SRS, dstSRS=SRS)
     pass
 
@@ -632,11 +589,12 @@ def benchmark():
 
 def main():
     # best_ckpt_path = '/home/yangli/Remote_SSH_Pyproject/terratorch_learn/Train_process/output/agb/checkpoints/best-epoch=86.ckpt'
-    # train_agb()
+    # print(isfile(best_ckpt_path))
+    train_agb()
     # predict_agb(best_ckpt_path)
     # mosaic_spatial_tifs_overlap()
     # resample_30_to_1km()
-    benchmark()
+    # benchmark()
 
     pass
 

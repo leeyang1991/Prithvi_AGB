@@ -38,3 +38,85 @@ data_root = join(this_root, 'data')
 results_root = join(this_root, 'results')
 temp_root = join(this_root, 'temp')
 conf_root = join(this_root, 'conf')
+
+
+global_res_gedi = 1000.89502334966744
+global_nodata_value = -999999
+
+
+def global_wkt_84():
+    wkt_str = '''GEOGCRS["WGS 84",
+ENSEMBLE["World Geodetic System 1984 ensemble",
+    MEMBER["World Geodetic System 1984 (Transit)"],
+    MEMBER["World Geodetic System 1984 (G730)"],
+    MEMBER["World Geodetic System 1984 (G873)"],
+    MEMBER["World Geodetic System 1984 (G1150)"],
+    MEMBER["World Geodetic System 1984 (G1674)"],
+    MEMBER["World Geodetic System 1984 (G1762)"],
+    MEMBER["World Geodetic System 1984 (G2139)"],
+    ELLIPSOID["WGS 84",6378137,298.257223563,
+        LENGTHUNIT["metre",1]],
+    ENSEMBLEACCURACY[2.0]],
+PRIMEM["Greenwich",0,
+    ANGLEUNIT["degree",0.0174532925199433]],
+CS[ellipsoidal,2],
+    AXIS["geodetic latitude (Lat)",north,
+        ORDER[1],
+        ANGLEUNIT["degree",0.0174532925199433]],
+    AXIS["geodetic longitude (Lon)",east,
+        ORDER[2],
+        ANGLEUNIT["degree",0.0174532925199433]],
+USAGE[
+    SCOPE["Horizontal component of 3D system."],
+    AREA["World."],
+    BBOX[-90,-180,90,180]],
+ID["EPSG",4326]]'''
+    return wkt_str
+
+
+def global_gedi_WKT():
+    projection_wkt = '''
+    PROJCRS["WGS 84 / NSIDC EASE-Grid 2.0 Global",
+        BASEGEOGCRS["WGS 84",
+            ENSEMBLE["World Geodetic System 1984 ensemble",
+                MEMBER["World Geodetic System 1984 (Transit)"],
+                MEMBER["World Geodetic System 1984 (G730)"],
+                MEMBER["World Geodetic System 1984 (G873)"],
+                MEMBER["World Geodetic System 1984 (G1150)"],
+                MEMBER["World Geodetic System 1984 (G1674)"],
+                MEMBER["World Geodetic System 1984 (G1762)"],
+                ELLIPSOID["WGS 84",6378137,298.257223563,
+                    LENGTHUNIT["metre",1]],
+                ENSEMBLEACCURACY[2.0]],
+            PRIMEM["Greenwich",0,
+                ANGLEUNIT["degree",0.0174532925199433]],
+            ID["EPSG",4326]],
+        CONVERSION["US NSIDC EASE-Grid 2.0 Global",
+            METHOD["Lambert Cylindrical Equal Area",
+                ID["EPSG",9835]],
+            PARAMETER["Latitude of 1st standard parallel",30,
+                ANGLEUNIT["degree",0.0174532925199433],
+                ID["EPSG",8823]],
+            PARAMETER["Longitude of natural origin",0,
+                ANGLEUNIT["degree",0.0174532925199433],
+                ID["EPSG",8802]],
+            PARAMETER["False easting",0,
+                LENGTHUNIT["metre",1],
+                ID["EPSG",8806]],
+            PARAMETER["False northing",0,
+                LENGTHUNIT["metre",1],
+                ID["EPSG",8807]]],
+        CS[Cartesian,2],
+            AXIS["easting (X)",east,
+                ORDER[1],
+                LENGTHUNIT["metre",1]],
+            AXIS["northing (Y)",north,
+                ORDER[2],
+                LENGTHUNIT["metre",1]],
+        USAGE[
+            SCOPE["Environmental science - used as basis for EASE grid."],
+            AREA["World between 86°S and 86°N."],
+            BBOX[-86,-180,86,180]],
+        ID["EPSG",6933]]'''
+
+    return projection_wkt
