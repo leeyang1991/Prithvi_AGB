@@ -10,7 +10,9 @@ class GenPatch:
         pass
 
     def run(self):
-        self.generate_patches_HLS()
+        # self.generate_patches_HLS()
+        # self.generate_patches_concat_1km()
+        self.generate_patches_concat_30m()
         # self.generate_patches_GEDI()
         # self.split_dataset() # deprecated, npy and json are not used
         # self.test_patch()
@@ -19,7 +21,7 @@ class GenPatch:
     @Decorator.shutup_gdal
     def generate_patches_HLS(self):
         import HLS, GEDI
-        dstSRS = GEDI.Preprocess_GEDI().get_WKT()
+        dstSRS = global_gedi_WKT()
         # hls_path = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km_224.tif')
         # hls_path = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
         hls_path = join(HLS.Preprocess_HLS().data_dir, 'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7.tif')
@@ -68,11 +70,107 @@ class GenPatch:
 
         print(f"Total patches saved: {count}")
 
+    @Decorator.shutup_gdal
+    def generate_patches_concat_1km(self):
+        import concat_data
+        dstSRS = global_gedi_WKT()
+        outdir_hls = join(self.data_dir,'patches/concat_1km')
+        T.mkdir(outdir_hls,force=True)
+        input_fpath = join(concat_data.Concat_Data().data_dir,'tif','concat_1km.tif')
+
+        PATCH_SIZE = 64
+        STRIDE = 16
+        random.seed(42)
+        with rasterio.open(input_fpath) as src_hls:
+            h, w = src_hls.height, src_hls.width
+            print(h,w)
+            # exit()
+            ds = gdal.Open(input_fpath)
+            gt = ds.GetGeoTransform()
+            xres = gt[1]
+            yres = gt[5]
+            x_min = gt[0]
+            y_max = gt[3]
+            x_max = x_min + ds.RasterXSize * gt[1]
+            y_min = y_max + ds.RasterYSize * gt[5]
+            count = 0
+
+            for row in tqdm(range(0, h - PATCH_SIZE, STRIDE), desc="Sliding rows"):
+            # for row in tqdm(range(0, 1), desc="Sliding rows"):
+                for col in range(0, w - PATCH_SIZE, STRIDE):
+                    # --- 读取HLS patch ---
+                    hls_patch = src_hls.read(
+                        window=((row, row + PATCH_SIZE), (col, col + PATCH_SIZE))
+                    ).astype(np.float32)
+                    # 检查是否全NaN
+                    if np.isnan(hls_patch).all():
+                        continue
+                    for band in hls_patch:
+                        band[band<-9999] = np.nan
+
+                    patch_name = f"patch_{count:05d}"
+                    patch_fpath = join(outdir_hls,patch_name+'.tif')
+                    # x_min_all, xres, 0, y_max_all, 0, yres
+                    x_min_i = x_min + col * xres
+                    y_max_i = y_max + row * yres
+                    self.patch_to_tif(patch_fpath, hls_patch, PATCH_SIZE, x_min_i, xres, y_max_i, yres,dstSRS)
+                    count += 1
+
+        print(f"Total patches saved: {count}")
+
+    @Decorator.shutup_gdal
+    def generate_patches_concat_30m(self):
+        import concat_data
+        dstSRS = global_gedi_WKT()
+        outdir_hls = join(self.data_dir,'patches/concat_30m')
+        T.mkdir(outdir_hls,force=True)
+        input_fpath = join(concat_data.Concat_Data().data_dir,'tif','concat_30m.tif')
+
+        PATCH_SIZE = 224
+        STRIDE = 112
+        random.seed(42)
+        with rasterio.open(input_fpath) as src_hls:
+            h, w = src_hls.height, src_hls.width
+            print(h,w)
+            # exit()
+            ds = gdal.Open(input_fpath)
+            gt = ds.GetGeoTransform()
+            xres = gt[1]
+            yres = gt[5]
+            x_min = gt[0]
+            y_max = gt[3]
+            x_max = x_min + ds.RasterXSize * gt[1]
+            y_min = y_max + ds.RasterYSize * gt[5]
+            count = 0
+
+            for row in tqdm(range(0, h - PATCH_SIZE, STRIDE), desc="Sliding rows"):
+            # for row in tqdm(range(0, 1), desc="Sliding rows"):
+                for col in range(0, w - PATCH_SIZE, STRIDE):
+                    # --- 读取HLS patch ---
+                    hls_patch = src_hls.read(
+                        window=((row, row + PATCH_SIZE), (col, col + PATCH_SIZE))
+                    ).astype(np.float32)
+                    # 检查是否全NaN
+                    if np.isnan(hls_patch).all():
+                        continue
+                    for band in hls_patch:
+                        band[band<-9999] = np.nan
+
+                    patch_name = f"patch_{count:05d}"
+                    patch_fpath = join(outdir_hls,patch_name+'.tif')
+                    # x_min_all, xres, 0, y_max_all, 0, yres
+                    x_min_i = x_min + col * xres
+                    y_max_i = y_max + row * yres
+                    self.patch_to_tif(patch_fpath, hls_patch, PATCH_SIZE, x_min_i, xres, y_max_i, yres,dstSRS)
+                    count += 1
+
+        print(f"Total patches saved: {count}")
+
     def patch_to_tif(self,patch_fpath, hls_patch,PATCH_SIZE,x_min, xres, y_max, yres,dstSRS):
         # pprint(hls_patch)
         # print(np.shape(hls_patch))
         # exit()
-        bands_name_list = ['B02', 'B03', 'B04', 'B05', 'B06', 'B07']
+        bands_name_list = global_band_list
         driver = gdal.GetDriverByName('GTiff')
         out_ds = driver.Create(patch_fpath, PATCH_SIZE, PATCH_SIZE, len(hls_patch), gdal.GDT_Float32,
                                options=['COMPRESS=LZW', 'BIGTIFF=YES'])
@@ -190,8 +288,9 @@ class Split_Patch:
         pass
 
     def run(self):
-        self.copy_HLS()
-        self.copy_gedi()
+        # self.copy_HLS()
+        self.copy_concat()
+        # self.copy_gedi()
         pass
 
     def gen_random_path_list(self):
@@ -261,6 +360,31 @@ class Split_Patch:
             shutil.copy(src_fpath,dst_fpath)
         pass
 
+    def copy_concat(self):
+        train_flist, val_flist, test_flist = self.gen_random_path_list()
+        patch_fdir = join(GenPatch().data_dir,'patches','concat_1km')
+        train_fdir = join(self.data_dir,'concat_1km','train')
+        val_fdir = join(self.data_dir,'concat_1km','val')
+        test_fdir = join(self.data_dir,'concat_1km','test')
+        T.mkdir(train_fdir,force=True)
+        T.mkdir(val_fdir,force=True)
+        T.mkdir(test_fdir,force=True)
+
+        for f in tqdm(train_flist,desc='train'):
+            src_fpath = join(patch_fdir,f)
+            dst_fpath = join(train_fdir,f)
+            shutil.copy(src_fpath,dst_fpath)
+
+        for f in tqdm(val_flist,desc='val'):
+            src_fpath = join(patch_fdir,f)
+            dst_fpath = join(val_fdir,f)
+            shutil.copy(src_fpath,dst_fpath)
+
+        for f in tqdm(test_flist,desc='test'):
+            src_fpath = join(patch_fdir,f)
+            dst_fpath = join(test_fdir,f)
+            shutil.copy(src_fpath,dst_fpath)
+        pass
 
 def main():
     GenPatch().run()
