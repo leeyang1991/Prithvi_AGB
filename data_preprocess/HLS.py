@@ -740,9 +740,116 @@ class Preprocess_HLS:
         outband.FlushCache()
         del outRaster
 
+class Download_From_GEE_1km:
+
+    def __init__(self):
+        self.data_dir = join(this_script_root,'Download_from_GEE_1km')
+
+        self.collection = 'NASA/HLS/HLSL30/v002' # derived from LandSAT
+        # --------------------------------------------------------------------------------
+        # self.collection = 'NASA/HLS/HLSS30/v002'  # derived from Sentinel
+
+        self.product = self.collection.split('/')[-2]
+        pass
+
+    def run(self):
+        date_range_list = self.gen_date_list()
+        # pprint(date_range_list)
+        # exit()
+        ee.Initialize(project='lyfq-263413')
+        outdir = join(self.data_dir,'zips',self.product)
+        T.mk_dir(outdir,force=True)
+
+        param_list = []
+        for startDate,endDate in date_range_list:
+            param = outdir,startDate,endDate
+            param_list.append(param)
+            # self.download_images(param)
+        MULTIPROCESS(self.download_images,param_list).run(process=20,process_or_thread='t')
+
+    def download_images(self,param):
+        outdir,startDate,endDate = param
+        # print(site)
+        res = global_res_gedi
+        outdir_i = join(outdir)
+        T.mk_dir(outdir_i)
+
+        Collection = ee.ImageCollection(self.collection)
+        Collection = Collection.filterDate(startDate, endDate)
+
+        info_dict = Collection.getInfo()
+        # pprint(info_dict)
+        # print(len(info_dict['features']))
+        # exit()
+        ids = info_dict['features']
+        # for i in tqdm(ids):
+        for i in ids:
+            dict_i = eval(str(i))
+            # pprint.pprint(dict_i['id'])
+            # exit()
+            outf_name = dict_i['id'].split('/')[-1] + '.zip'
+            out_path = join(outdir_i, outf_name)
+            if isfile(out_path):
+                continue
+            Image = ee.Image(dict_i['id'])
+            # Image_product = Image.select('total_precipitation')
+            Image_product = Image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'Fmask'])
+            # print(Image_product);exit()
+            # region = [-111, 32.2, -110, 32.6]# left, bottom, right,
+            # region = [-180, -90, 180, 90]  # left, bottom, right,
+            exportOptions = {
+                'scale': res,
+                'maxPixels': 1e13,
+                # 'region': region,
+                # 'fileNamePrefix': 'exampleExport',
+                # 'description': 'imageToAssetExample',
+            }
+            url = Image_product.getDownloadURL(exportOptions)
+            # print(url)
+
+            try:
+                self.download_i(url, out_path)
+            except:
+                print('download error', out_path)
+                continue
+        pass
+    def download_i(self,url,outf):
+        # try:
+        http = urllib3.PoolManager()
+        r = http.request('GET', url, preload_content=False)
+        body = r.read()
+        with open(outf, 'wb') as f:
+            f.write(body)
+
+    def gen_date_list(self,start_date = '2019-01-01',end_date = '2023-12-31'):
+
+        days_count = T.count_days_of_two_dates(start_date, end_date)
+        # print(days_count)
+        # exit()
+        date_list = []
+        base_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+        # for i in range(int(days_count/3)+1):
+        for i in np.arange(0,days_count+2,1):
+            # print(i)
+            date = base_date + datetime.timedelta(days=int(i))
+            date_list.append(date.strftime('%Y-%m-%d'))
+        # pprint(date_list)
+        # exit()
+        # every two days
+        # date_range_list = []
+        # for i in range(len(date_list)-1):
+        #     if i%2==0:
+        #         date_range_list.append([date_list[i],date_list[i+1]])
+        # every one days
+        date_range_list = []
+        for i in range(len(date_list) - 1):
+            date_range_list.append([date_list[i], date_list[i]])
+        return date_range_list
+
 def main():
     # Download().run()
     Preprocess_HLS().run()
+    # Download_From_GEE_1km().run()
     pass
 
 if __name__ == '__main__':
