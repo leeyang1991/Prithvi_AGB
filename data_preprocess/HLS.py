@@ -1098,13 +1098,15 @@ class Tif_loader:
                 )
                 patch_concat_list.append(patch)
         patch_concat = np.concatenate(patch_concat_list, axis=0)
+        # print(patch_concat.shape)
+        # exit()
         patch_concat_list = []
 
-        window = Window(col_off=0, row_off=self.available_rows*idx, width=self.w,height=self.available_rows)
+        window = Window(col_off=0, row_off=self.available_rows*idx, width=self.w,height=patch_concat.shape[1])
         new_transform = rasterio.windows.transform(window, src.transform)
 
         profile_new = self.profile.copy()
-        profile_new['height'] = self.available_rows
+        profile_new['height'] = patch_concat.shape[1]
         profile_new['transform'] = new_transform
         transform = profile_new['transform']
         return patch_concat,profile_new
