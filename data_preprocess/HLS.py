@@ -37,20 +37,55 @@ class Download:
         pass
 
     def run(self):
+        # self.gen_urls_test()
         # self.gen_urls()
         # self.download()
-        self.check_download()
+        # self.check_download()
+        # self.move_tile_to_different_folder()
+        self.delete_empty_folders()
+        pass
+
+    def gen_urls_test(self):
+        # outdir = join(self.data_dir, 'url_list')
+        # T.mkdir(outdir, force=True)
+        # outf = join(outdir, 'url_list.txt')
+        # if isfile(outf):
+        #     return
+        earthaccess.login(persist=True)
+        # earthaccess.download()
+        field = gp.read_file('az_test.geojson')
+        bbox = tuple(list(field.total_bounds))
+        # print(bbox)
+        # exit()
+        temporal = ("2019-01-01T00:00:00", "2023-12-31T23:59:59")
+
+        results = earthaccess.search_data(
+            short_name='Global_Veg_Greenness_GIMMS_3G_2187',
+            temporal=temporal,
+            count=5
+        )
+        print(results)
+        exit()
+        # filelist = earthaccess.download(results, local_path=outdir)
+
+        hls_results_urls = [granule.data_links() for granule in results]
+        # print('len(hls_results_urls)', len(hls_results_urls))
+        # fw = open(outf,'w')
+        # for url_list in hls_results_urls:
+        #     for url in url_list:
+        #         fw.write(url + '\n')
+        # fw.close()
         pass
 
     def gen_urls(self):
         outdir = join(self.data_dir, 'url_list')
         T.mkdir(outdir, force=True)
-        outf = join(outdir, 'url_list.txt')
+        outf = join(outdir, 'santarita.txt')
         if isfile(outf):
             return
         earthaccess.login(persist=True)
         # earthaccess.download()
-        field = gp.read_file('az_test.geojson')
+        field = gp.read_file('santarita.geojson')
         bbox = tuple(list(field.total_bounds))
         # print(bbox)
         # exit()
@@ -75,6 +110,7 @@ class Download:
         pass
 
     def download(self):
+        # todo: split tiles in different folders
         outdir = join(self.data_dir, 'Download')
     #
         selected_bands = [
@@ -87,7 +123,7 @@ class Download:
             'Fmask'
         ]
         hls_results_urls = []
-        with open(join(self.data_dir, 'url_list', 'url_list.txt'), 'r') as f:
+        with open(join(self.data_dir, 'url_list', 'santarita.txt'), 'r') as f:
             for line in f:
                 hls_results_urls.append(line.strip())
 
@@ -104,14 +140,14 @@ class Download:
             # outdir_i = join(outdir,url.split('/')[-2])
             # T.mkdir(outdir_i)
             # outf = join(outdir_i,url.split('/')[-1])
-            # self.kernel_download(url, outf)
+            # self.kernel_download([url,session,outdir])
         MULTIPROCESS(self.kernel_download,params_list).run(process=10, process_or_thread='t')
 
     def kernel_download(self,params):
         url,session,outdir = params
         outdir_i = join(outdir,url.split('/')[-2])
         try:
-            T.mkdir(outdir_i)
+            T.mkdir(outdir_i,force=True)
         except:
             pass
         outf = join(outdir_i,url.split('/')[-1])
@@ -124,9 +160,9 @@ class Download:
             for chunk in r.iter_content(chunk_size=8192):
                 fw.write(chunk)
             fw.close()
-        except:
+        except Exception as e:
             print('error')
-            print(url)
+            print(e)
             print('--------')
             return
 
@@ -142,6 +178,28 @@ class Download:
                 except:
                     print(fpath)
                     os.remove(fpath)
+        pass
+
+    def move_tile_to_different_folder(self):
+        fdir = join(self.data_dir,'Download')
+        for folder in tqdm(T.listdir(fdir)):
+            for f in T.listdir(join(fdir,folder)):
+                fpath = join(fdir,folder,f)
+                tile = f.split('.')[2]
+                outdir_i = join(fdir,tile,folder)
+                T.mkdir(outdir_i,force=True)
+                outf = join(outdir_i,f)
+                os.rename(fpath,outf)
+                # print(outf)
+                # exit()
+        pass
+
+    def delete_empty_folders(self):
+
+        fdir = join(self.data_dir,'Download')
+        for folder in tqdm(T.listdir(fdir)):
+            if len(T.listdir(join(fdir,folder)))==0:
+                os.rmdir(join(fdir,folder))
         pass
 
     def get_account_passwd(self):
@@ -161,7 +219,7 @@ class Preprocess_HLS:
 
     def run(self):
         # self.re_proj()
-        # self.quality_control()
+        self.quality_control_long_term_mean()
         # self.image_shp()
         # self.concatenate()
         # self.plot_time_series()
@@ -170,8 +228,8 @@ class Preprocess_HLS:
         # self.spatial_dict_to_tif()
         # self.mosaic_spatial_tifs()
         # self.merge_bands()
-        self.resample_to_1km()
-        self.padding_224()
+        # self.resample_to_1km()
+        # self.padding_224()
 
         pass
 
@@ -186,7 +244,7 @@ class Preprocess_HLS:
         ]
         self.year_list = ['2019', '2020', '2021', '2022', '2023']
         self.sat_list = ['L30', 'S30']
-        self.tile_list = ['T12STG','T12STH','T12SUG','T12SUH','T12SVG','T12SVH']
+        # self.tile_list = ['T12STG','T12STH','T12SUG','T12SUH','T12SVG','T12SVH']
         sat = self.sat_list[0]
         band = self.bands_list[0]
         year = self.year_list[0]
@@ -236,8 +294,122 @@ class Preprocess_HLS:
         projection_wkt = raster.GetProjection()
         return projection_wkt
 
-    @Decorator.shutup_gdal
-    def quality_control(self):
+    def quality_control_long_term_mean(self):
+        outdir = join(self.data_dir,'quality_control_long_term_mean')
+        T.mkdir(outdir,force=True)
+        njob = 32
+        memory_allocate = 0.2 # in GB, 6nGB, njob = tot mem/6nGB
+        qa_filter_list = self.get_qa_filter_list()
+        band_list = self.bands_list
+        fdir = join(self.data_dir,'Download')
+        params_list = []
+        for tile in T.listdir(fdir):
+            dtype = np.int16
+            # get QA 3d array
+            flist_qa = []
+            for folder in T.listdir(join(fdir,tile)):
+                qa_fpath = join(fdir,tile, folder, f'{folder}.Fmask.tif')
+                flist_qa.append(qa_fpath)
+            Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype)
+
+            # get each band 3d array
+            for band in band_list:
+                band_fpath_list = []
+                for folder in T.listdir(join(fdir, tile)):
+                    band_fpath = join(fdir, tile, folder, f'{folder}.{band}.tif')
+                    band_fpath_list.append(band_fpath)
+                Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype)
+                for idx in Tif_loader_band.block_index_list:
+                    params = [Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band]
+                    params_list.append(params)
+                    # self.kernel_quality_control_long_term_mean(params)
+        MULTIPROCESS(self.kernel_quality_control_long_term_mean,params_list).run(process=njob)
+
+    def kernel_quality_control_long_term_mean(self,params):
+        Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band = params
+        iter_length = Tif_loader_qa.iter_length
+        digit = math.log(iter_length,10) + 1
+        digit = int(digit)
+        outdir_i = join(outdir, tile, band)
+        outf = join(outdir_i, f'{tile}.{band}.{idx:0{digit}d}.tif')
+        # print(outf)
+        if isfile(outf):
+            return
+
+        qa_patch_concat, qa_profile = Tif_loader_qa.array_iterator_index(idx)
+        qa_filter_mask_list = []
+        for qa_patch_concat_i in qa_patch_concat:
+            qa_filter_mask = self.gen_qa_mask_array(qa_patch_concat_i, qa_filter_list)
+            qa_filter_mask = qa_filter_mask.astype(bool)
+            qa_filter_mask_list.append(qa_filter_mask)
+        qa_filter_mask_concat = np.stack(qa_filter_mask_list, axis=0)
+        band_patch_concat, band_profile = Tif_loader_band.array_iterator_index(idx)
+        band_patch_concat[~qa_filter_mask_concat] = -9999
+        band_patch_concat = np.array(band_patch_concat, dtype=np.float32)
+        band_patch_concat[band_patch_concat < -999] = np.nan
+        band_patch_concat_average = np.nanmean(band_patch_concat, axis=0)
+        try:
+            T.mkdir(outdir_i, force=True)
+        except:
+            pass
+        RasterIO_Func().write_tif(band_patch_concat_average, outf, band_profile)
+
+
+    def quality_control1(self):
+        memory_allocate = 0.1 # in GB
+        qa_filter_list = self.get_qa_filter_list()
+        band_list = self.bands_list
+        fdir = join(self.data_dir,'Download')
+
+        for tile in T.listdir(fdir):
+            dtype = np.int16
+            # get QA 3d array
+            flist_qa = []
+            for folder in T.listdir(join(fdir,tile)):
+                qa_fpath = join(fdir,tile, folder, f'{folder}.Fmask.tif')
+                flist_qa.append(qa_fpath)
+            Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype)
+            qa_band_array_dict = {}
+            for idx in tqdm(Tif_loader_qa.block_index_list,desc='loading qa'):
+                qa_patch_concat, qa_profile = Tif_loader_qa.array_iterator_index(idx)
+                qa_filter_mask_list = []
+                for qa_patch_concat_i in qa_patch_concat:
+                    qa_filter_mask = self.gen_qa_mask_array(qa_patch_concat_i,qa_filter_list)
+                    # print(qa_filter_mask.shape)
+                    qa_filter_mask_list.append(qa_filter_mask)
+                qa_filter_mask_concat = np.stack(qa_filter_mask_list,axis=0)
+                # print(qa_filter_mask_concat.shape)
+                qa_band_array_dict[idx] = qa_filter_mask_concat
+
+            # get each band 3d array
+            for band in band_list:
+                band_fpath_list = []
+                for folder in T.listdir(join(fdir, tile)):
+                    band_fpath = join(fdir, tile, folder, f'{folder}.{band}.tif')
+                    band_fpath_list.append(band_fpath)
+                Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype)
+                for idx in Tif_loader_band.block_index_list:
+                    qa_patch_concat = qa_band_array_dict[idx]
+                    band_patch_concat, band_profile = Tif_loader_band.array_iterator_index(idx)
+                    print(qa_patch_concat.shape)
+                    print(band_patch_concat.shape)
+                    band_patch_concat_mask_list = []
+                    for i in tqdm(range(qa_patch_concat.shape[0])):
+                        band_patch_mask = band_patch_concat[i][~qa_patch_concat[i]]
+                        band_patch_concat_mask_list.append(band_patch_mask)
+                        if i == 0:
+                            print(band_patch_mask.shape)
+                    band_patch_concat_mask = np.stack(band_patch_concat_mask_list,axis=0)
+                    print(band_patch_concat_mask.shape)
+                    pause()
+
+
+                exit()
+
+
+    def get_qa_filter_list(self):
+        # print('need water body!!!!')
+        # raise 'need water body!!!!'
         '''
         see:https://lpdaac.usgs.gov/documents/1698/HLS_User_Guide_V2.pdf#page=17.08
         fmask value:
@@ -248,8 +420,8 @@ class Preprocess_HLS:
         7-6    |aerosol level    |10       |Moderate aerosol
         7-6    |aerosol level    |01       |Low aerosol
         7-6    |aerosol level    |00       |Climatology aerosol
-        5      |Water            |1        |Climatology aerosol
-        5      |Water            |0        |Climatology aerosol
+        5      |Water            |1        |Yes
+        5      |Water            |0        |No
         4      |Snow/ice         |1        |Yes
         4      |Snow/ice         |0        |No
         3      |Cloud shadow     |1        |Yes
@@ -260,44 +432,39 @@ class Preprocess_HLS:
         1      |Cloud            |0        |No
         0      |Cirrus           |NA       |NA
         '''
-        import GEDI
-        wkt_dest = GEDI.Preprocess_GEDI().get_WKT()
-        band_list = ['B02','B03','B04','B05','B06','B07']
-        fdir = join(self.data_dir,'reproj')
-        outdir = join(self.data_dir,'reproj_qa')
-        T.mkdir(outdir)
-        params_list = []
-        for folder in tqdm(T.listdir(fdir)):
-            params = [outdir,folder,fdir,band_list,wkt_dest]
-            params_list.append(params)
-        MULTIPROCESS(self.kernel_quality_control,params_list).run(process=30)
+        # qa_filter_list = [
+        #     0b00000000,
+        #     0b10000000,
+        #     0b11000000,
+        #     0b01000000,
+        #     0b00100000,
+        #     0b10100000,
+        #     0b11100000,
+        #     0b01100000,
+        # ]
+        # qa_filter_list.sort()
+        # print(qa_filter_list)
+        qa_filter_list = []
+        for bit in range(pow(2, 3)):
+            # print(bit*2**5)
+            qa_filter_list.append(bit * pow(2, 5))
+        return qa_filter_list
 
+    def gen_qa_mask_array(self,qa_array,qa_filter_list):
+        arr_init = np.ones(qa_array.shape, dtype=np.uint8)
+        arr_init_copy_qa_list = []
+        for qa_code in qa_filter_list:
+            arr_init_copy = copy.copy(qa_code)
+            arr_init_copy_qa = arr_init_copy & qa_array
+            arr_init_copy_qa_list.append(arr_init_copy_qa)
 
-    def kernel_quality_control(self,params):
-        outdir,folder,fdir,band_list,wkt_dest = params
-        outdir_i = join(outdir, folder)
-        T.mkdir(outdir_i)
-        qa_fpath = join(fdir, folder, f'{folder}.Fmask.tif')
-        arr_qc = self.raster2array(qa_fpath)[0]
-        arr_init = np.ones(arr_qc.shape, dtype=np.uint8)
-        arr0 = arr_init * 0
-        arr64 = arr_init * 64
-        arr128 = arr_init * 128
-        arr192 = arr_init * 192
-        arr_filter0 = arr_qc == arr0
-        arr_filter64 = arr_qc == arr64
-        arr_filter128 = arr_qc == arr128
-        arr_filter192 = arr_qc == arr192
-        arr_qc_filter = arr_filter0 | arr_filter64 | arr_filter128 | arr_filter192
-        for band in band_list:
-            fpath = join(fdir, folder, f'{folder}.{band}.tif')
-            outf = join(outdir_i, f'{folder}.{band}.tif')
-            array, originX, originY, pixelWidth, pixelHeight, _ = self.raster2array(fpath)
-            array = np.array(array, dtype=np.float32) / 10000
-            array[~arr_qc_filter] = np.nan
-            self.array2raster(outf, originX, originY, pixelWidth, pixelHeight, array, wkt_dest)
+        arr_filter_init = np.zeros(qa_array.shape, dtype=np.uint8)
+        for arr_init_copy_qa in arr_init_copy_qa_list:
+            arr_filter = qa_array == arr_init_copy_qa
+            arr_filter_init += arr_filter
+        arr_filter_init[arr_filter_init>0] = 1
 
-        pass
+        return arr_filter_init
 
     @Decorator.shutup_gdal
     def image_shp(self):
@@ -755,6 +922,21 @@ class Preprocess_HLS:
         # Close Geotiff
         outband.FlushCache()
         del outRaster
+
+    def steps(self):
+        '''
+        download 500g
+
+        qa 500g
+        concatenate 500g*2
+        aggragate 14g
+
+
+        reproj
+        mosaic
+        merge-bands
+        '''
+        pass
 
 class Download_From_GEE_1km:
 
