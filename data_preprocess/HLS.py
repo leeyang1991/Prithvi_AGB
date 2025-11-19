@@ -1,11 +1,27 @@
+import copy
 
+import affine
+import math
+
+import matplotlib.pyplot as plt
+import numpy as np
+from pkg_resources import load_entry_point
+from torch.utils.benchmark import ordered_unique
+from rasterio.windows import Window
+from rasterio.mask import mask
+from rasterio.merge import merge
+from rasterio.io import MemoryFile
+import geopandas as gpd
 from __init__ import *
 
 from __global__ import *
 import rasterio
 import geopandas as gp
-# import earthaccess
-# import ee
+import earthaccess
+import ee
+import urllib3
+# ee.Authenticate()
+# exit()
 from lytools import *
 T = Tools()
 # exit()
@@ -845,6 +861,182 @@ class Download_From_GEE_1km:
         for i in range(len(date_list) - 1):
             date_range_list.append([date_list[i], date_list[i]])
         return date_range_list
+
+class Tif_loader:
+
+    def __init__(self,flist,memory_allocate,dtype=None):
+        self.flist = flist
+        self.memory_allocate = memory_allocate
+        self.profile = self.get_image_profiles(flist[0])
+        # pprint(profile)
+        self.h = self.profile['height']
+        self.w = self.profile['width']
+        if dtype == None:
+            self.dtype = self.profile['dtype']
+        else:
+            self.dtype = dtype
+        self.available_rows = self.get_available_rows(self.memory_allocate, len(flist), self.h, self.w, dtype=self.dtype)
+        self.iter_length = math.ceil(self.h / self.available_rows)
+        self.block_index_list = list(range(math.ceil(self.h / self.available_rows)))
+        print('sliding rows',self.available_rows)
+        pass
+
+    def array_iterator(self):
+        idx = 0
+        for row in range(0, self.h, self.available_rows):
+            patch_concat_list = []
+            for fpath in self.flist:
+                with rasterio.open(fpath) as src:
+                    patch = src.read(
+                        window=((row, row + self.available_rows),(0, self.w))
+                    )
+                    patch_concat_list.append(patch)
+            patch_concat = np.concatenate(patch_concat_list, axis=0)
+            patch_concat_list = []
+
+            window = Window(col_off=0, row_off=self.available_rows * idx, width=self.w, height=self.available_rows)
+            new_transform = rasterio.windows.transform(window, src.transform)
+
+            profile_new = self.profile.copy()
+            profile_new['height'] = self.available_rows
+            profile_new['transform'] = new_transform
+            transform = profile_new['transform']
+            idx += 1
+            yield patch_concat, profile_new
+
+    def array_iterator_index(self,idx):
+
+        row_list = list(range(0, self.h, self.available_rows))
+        row = row_list[idx]
+        patch_concat_list = []
+        for fpath in self.flist:
+            with rasterio.open(fpath) as src:
+                patch = src.read(
+                    window=((row, row + self.available_rows),(0, self.w))
+                )
+                patch_concat_list.append(patch)
+        patch_concat = np.concatenate(patch_concat_list, axis=0)
+        patch_concat_list = []
+
+        window = Window(col_off=0, row_off=self.available_rows*idx, width=self.w,height=self.available_rows)
+        new_transform = rasterio.windows.transform(window, src.transform)
+
+        profile_new = self.profile.copy()
+        profile_new['height'] = self.available_rows
+        profile_new['transform'] = new_transform
+        transform = profile_new['transform']
+        return patch_concat,profile_new
+
+
+    def get_available_rows(self,mem_allocate,file_num,image_height,image_width,band_num=1,dtype=np.float32):
+        # mem_allocate: GiB
+        if mem_allocate > 512:
+            Warning(f'Are you sure to allocate {mem_allocate}GiB memory?')
+            print(f'Are you sure to allocate {mem_allocate}GiB memory?')
+            pause()
+        mem_allocate = self.GiByte_to_Byte(mem_allocate)
+
+        memory_info = psutil.virtual_memory()
+        total_mem  = self.sizeof_fmt(memory_info.total)
+        sys_available_mem = memory_info.available
+        if mem_allocate * 2 > memory_info.total:
+            print('Memory not enough!!!','\ntotal mem:',total_mem,'\navailable mem:',self.sizeof_fmt(sys_available_mem))
+            exit()
+        if mem_allocate * 2 > memory_info.available:
+            print('Memory Stress!!!','\ntotal mem:',total_mem,'\navailable mem:',self.sizeof_fmt(sys_available_mem))
+            pause()
+        array_init = np.zeros((1, 1), dtype=dtype)
+        obj_mem = sys.getsizeof(array_init) - 128
+        available_rows = int(mem_allocate / obj_mem / file_num / image_width)
+        # print(mem_allocate / obj_mem / file_num / image_width)
+        if available_rows < 1:
+            raise Exception('memory not enough, please allocate more memory')
+        if available_rows > image_height:
+            print(f'Do not need that much memory, available_rows:{available_rows}, image_height:{image_height}')
+            available_rows = image_height
+        return available_rows
+
+    def sizeof_fmt(self, num, suffix="B"):
+        for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+            if abs(num) < 1024.0:
+                return f"{num:3.1f}{unit}{suffix}"
+            num /= 1024.0
+        return f"{num:.1f}Yi{suffix}"
+
+    def GiByte_to_Byte(self, GiByte):
+        try:
+            GiByte = float(GiByte)
+        except:
+            raise Exception('input error')
+        return int(GiByte * 1024 * 1024 * 1024)
+
+    def get_image_profiles(self,fpath):
+        with rasterio.open(fpath) as src:
+            profile = src.profile
+            return profile
+
+class RasterIO_Func:
+
+    def __init__(self):
+
+        pass
+
+    def write_tif(self, array, outf, profile):
+        with rasterio.open(outf, "w", **profile) as dst:
+            dst.write(array, 1)
+
+    def write_tif_multi_bands(self, array_3d, outf, profile, bands_description: list = None):
+        with rasterio.open(outf, "w", **profile) as dst:
+            for i in range(array_3d.shape[0]):
+                dst.write(array_3d[i], i + 1)
+                if bands_description is not None:
+                    dst.set_band_description(i + 1, bands_description[i])
+
+    def read_tif(self,fpath):
+        with rasterio.open(fpath) as src:
+            data = src.read()
+            profile = src.profile
+            return data,profile
+
+    def crop_tif(self,fpath,outf,in_shp):
+        with rasterio.open(fpath) as src:
+            shapes = gpd.read_file(in_shp).geometry
+            subset, subset_transform = mask(src, shapes, crop=True)
+
+            profile = src.profile
+            profile.update({
+                "height": subset.shape[1],
+                "width": subset.shape[2],
+                "transform": subset_transform
+            })
+
+        with rasterio.open(outf, "w", **profile) as dst:
+            dst.write(subset)
+
+    def mosaic_arrays(self,array_list,profile_list):
+        datasets = []
+        for arr, prof in zip(array_list, profile_list):
+            if arr.ndim == 2 and prof["count"] == 1:
+                arr = arr[np.newaxis, :, :]
+
+            if arr.ndim == 2:
+                prof.update(count=1)
+            elif arr.ndim == 3:
+                prof.update(count=arr.shape[0])
+            else:
+                raise ValueError("Invalid array dimensions for rasterio write")
+            memfile = MemoryFile()
+            with memfile.open(**prof) as dataset:
+                dataset.write(arr)
+            datasets.append(memfile.open())
+        mosaic, mosaic_transform = merge(datasets)
+        out_profile = profile_list[0].copy()
+        out_profile.update({
+            "height": mosaic.shape[1],
+            "width": mosaic.shape[2],
+            "transform": mosaic_transform
+        })
+        return mosaic,out_profile
 
 def main():
     # Download().run()
