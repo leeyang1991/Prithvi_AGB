@@ -12,7 +12,7 @@ if 'wheat' in computer_name:
     print('Platform: Wheat')
 elif 'yangli-ubt' in computer_name:
     # Dell
-    this_root = '/home/yangli/HDD/Projects_Data/Prithvi_AGB/'
+    this_root = '/home/yangli/SSD4T/Prithvi_AGB/'
     global_device = 'cuda'
     print('Platform: Dell')
 elif 'Yang-M4Pro.local' in computer_name:

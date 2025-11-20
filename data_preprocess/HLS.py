@@ -6,7 +6,6 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from pkg_resources import load_entry_point
-from torch.utils.benchmark import ordered_unique
 from rasterio.windows import Window
 from rasterio.mask import mask
 from rasterio.merge import merge
@@ -20,6 +19,8 @@ import geopandas as gp
 import earthaccess
 import ee
 import urllib3
+from pathlib import Path
+
 # ee.Authenticate()
 # exit()
 from lytools import *
@@ -39,10 +40,10 @@ class Download:
     def run(self):
         # self.gen_urls_test()
         # self.gen_urls()
-        # self.download()
+        self.download()
         # self.check_download()
         # self.move_tile_to_different_folder()
-        self.delete_empty_folders()
+        # self.delete_empty_folders()
         pass
 
     def gen_urls_test(self):
@@ -110,7 +111,6 @@ class Download:
         pass
 
     def download(self):
-        # todo: split tiles in different folders
         outdir = join(self.data_dir, 'Download')
     #
         selected_bands = [
@@ -135,7 +135,9 @@ class Download:
             band = url.split('.')[-2]
             if not band in selected_bands:
                 continue
-            params_list.append([url,session,outdir])
+            tile = url.split('/')[-1].split('.')[2]
+            outdir_i = join(outdir,tile)
+            params_list.append([url,session,outdir_i])
             # print(url)
             # outdir_i = join(outdir,url.split('/')[-2])
             # T.mkdir(outdir_i)
@@ -181,7 +183,8 @@ class Download:
         pass
 
     def move_tile_to_different_folder(self):
-        fdir = join(self.data_dir,'Download')
+        # fdir = join(self.data_dir,'Download')
+        fdir = '/data/home/wenzhang/Yang/Transformer_Learn/data/HLS/Download'
         for folder in tqdm(T.listdir(fdir)):
             for f in T.listdir(join(fdir,folder)):
                 fpath = join(fdir,folder,f)
@@ -196,7 +199,8 @@ class Download:
 
     def delete_empty_folders(self):
 
-        fdir = join(self.data_dir,'Download')
+        # fdir = join(self.data_dir,'Download')
+        fdir = fdir = '/data/home/wenzhang/Yang/Transformer_Learn/data/HLS/Download'
         for folder in tqdm(T.listdir(fdir)):
             if len(T.listdir(join(fdir,folder)))==0:
                 os.rmdir(join(fdir,folder))
@@ -218,16 +222,11 @@ class Preprocess_HLS:
         pass
 
     def run(self):
-        # self.re_proj()
+        # self.gen_image_shp()
         self.quality_control_long_term_mean()
-        # self.image_shp()
-        # self.concatenate()
+        # self.mosaic_merge_bands_tifs()
         # self.plot_time_series()
-        # self.aggragate()
         # self.get_tif_template()
-        # self.spatial_dict_to_tif()
-        # self.mosaic_spatial_tifs()
-        # self.merge_bands()
         # self.resample_to_1km()
         # self.padding_224()
 
@@ -295,10 +294,10 @@ class Preprocess_HLS:
         return projection_wkt
 
     def quality_control_long_term_mean(self):
-        outdir = join(self.data_dir,'quality_control_long_term_mean')
+        outdir = join(self.data_dir,'quality_control_long_term_mean2')
         T.mkdir(outdir,force=True)
         njob = 32
-        memory_allocate = 0.2 # in GB, 6nGB, njob = tot mem/6nGB
+        memory_allocate = 0.5 # in GB, 6nGB, njob = tot mem/6nGB
         qa_filter_list = self.get_qa_filter_list()
         band_list = self.bands_list
         fdir = join(self.data_dir,'Download')
@@ -310,7 +309,9 @@ class Preprocess_HLS:
             for folder in T.listdir(join(fdir,tile)):
                 qa_fpath = join(fdir,tile, folder, f'{folder}.Fmask.tif')
                 flist_qa.append(qa_fpath)
+            # flist_qa = flist_qa[:10]
             Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype)
+            exit()
 
             # get each band 3d array
             for band in band_list:
@@ -318,6 +319,7 @@ class Preprocess_HLS:
                 for folder in T.listdir(join(fdir, tile)):
                     band_fpath = join(fdir, tile, folder, f'{folder}.{band}.tif')
                     band_fpath_list.append(band_fpath)
+                # band_fpath_list = band_fpath_list[:10]
                 Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype)
                 for idx in Tif_loader_band.block_index_list:
                     params = [Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band]
@@ -344,16 +346,54 @@ class Preprocess_HLS:
             qa_filter_mask_list.append(qa_filter_mask)
         qa_filter_mask_concat = np.stack(qa_filter_mask_list, axis=0)
         band_patch_concat, band_profile = Tif_loader_band.array_iterator_index(idx)
-        band_patch_concat[~qa_filter_mask_concat] = -9999
-        band_patch_concat = np.array(band_patch_concat, dtype=np.float32)
-        band_patch_concat[band_patch_concat < -999] = np.nan
-        band_patch_concat_average = np.nanmean(band_patch_concat, axis=0)
+        # band_patch_concat[~qa_filter_mask_concat] = -9999
+        # band_patch_concat = np.array(band_patch_concat, dtype=np.float32)
+        # band_patch_concat[band_patch_concat == -9999] = np.nan
+        # band_patch_concat_average = np.nanmean(band_patch_concat, axis=0)
+        # print(qa_filter_mask_concat.shape)
+        band_patch_concat_average = np.mean(band_patch_concat, axis=0,where=qa_filter_mask_concat)
+        # delta = band_patch_concat_average1 - band_patch_concat_average
+        # plt.imshow(band_patch_concat_average)
+        # plt.show()
+        # plt.imshow(band_patch_concat_average1)
+        # plt.show()
+        # plt.imshow(delta)
+        # plt.show()
+        # pause()
+
         try:
             T.mkdir(outdir_i, force=True)
         except:
             pass
         RasterIO_Func().write_tif(band_patch_concat_average, outf, band_profile)
 
+
+    def mosaic_merge_bands_tifs(self):
+        fdir = join(self.data_dir,'quality_control_long_term_mean')
+        outdir = join(self.data_dir,'mosaic_merge_bands_tifs')
+        T.mkdir(outdir,force=True)
+        for tile in T.listdir(fdir):
+            mosaic_list = []
+            band_name_list = []
+            out_profile = ''
+            for band in tqdm(T.listdir(join(fdir,tile))):
+                array_list = []
+                profile_list = []
+                for f in T.listdir(join(fdir,tile,band)):
+                    fpath = join(fdir,tile,band,f)
+                    array,profile = RasterIO_Func().read_tif(fpath)
+                    array_list.append(array)
+                    profile_list.append(profile)
+                mosaic,out_profile = RasterIO_Func().mosaic_arrays(array_list,profile_list)
+                mosaic = mosaic.squeeze()
+                mosaic_list.append(mosaic)
+                band_name_list.append(band)
+            mosaic_list = np.array(mosaic_list)
+            outf = join(outdir,f'{tile}.tif')
+            RasterIO_Func().write_tif_multi_bands(mosaic_list, outf, out_profile, band_name_list)
+
+            pass
+        pass
 
     def quality_control1(self):
         memory_allocate = 0.1 # in GB
@@ -466,217 +506,59 @@ class Preprocess_HLS:
 
         return arr_filter_init
 
-    @Decorator.shutup_gdal
-    def image_shp(self):
+    def gen_image_shp(self):
         from shapely.geometry import Polygon
         import geopandas as gpd
         outdir = join(self.data_dir,'image_shp')
         T.mkdir(outdir)
-        fdir = join(self.data_dir,'reproj_qa')
-        pos_dict = {}
-        for folder in tqdm(T.listdir(fdir)):
-            pos_code = folder.split('.')[2]
-            sat_code = folder.split('.')[1]
-            if sat_code+pos_code in pos_dict:
-                continue
-            for f in T.listdir(join(fdir,folder)):
-                fpath = join(fdir,folder,f)
-                array, originX, originY, pixelWidth, pixelHeight, _ = self.raster2array(fpath)
-                pos_dict[sat_code+pos_code] = {'originX':originX,'originY':originY,'endX':originX+array.shape[1]*pixelWidth,'endY':originY+array.shape[0]*pixelHeight}
+        fdir = join(self.data_dir,'Download')
+        tile_list = []
+        shp_flist = []
+        for tile in T.listdir(fdir):
+            for folder in T.listdir(join(fdir,tile)):
+                for f in T.listdir(join(fdir,tile,folder)):
+                    fpath = join(fdir,tile,folder,f)
+                    # print(fpath)
+                    # print(isfile(fpath))
+                    # exit()
+                    # array, originX, originY, pixelWidth, pixelHeight, _ = self.raster2array(fpath)
+                    array,profile = RasterIO_Func().read_tif(fpath)
+                    crs = profile['crs']
+                    array = array.squeeze()
+                    # pprint(profile)
+                    originX = profile['transform'][2]
+                    originY = profile['transform'][5]
+                    pixelWidth = profile['transform'][0]
+                    pixelHeight = profile['transform'][4]
+                    endX = originX+array.shape[1]*pixelWidth
+                    endY = originY+array.shape[0]*pixelHeight
+                    ll_point = (originX, originY)
+                    lr_point = (endX, originY)
+                    ur_point = (endX, endY)
+                    ul_point = (originX, endY)
+                    # print(ll_point, lr_point, ur_point, ul_point)
+                    # exit()
+                    polygon_geom = [Polygon([ll_point, lr_point, ur_point, ul_point])]
+                    outf = join(outdir,f'{tile}.shp')
+                    crs = crs.to_string()
+                    # print(crs)
+                    # exit()
+                    # gpd.GeoDataFrame(geometry=[polygon_geom],crs=crs).to_file(outf)
+                    polygon = gpd.GeoDataFrame(crs=crs, geometry=polygon_geom)
+                    polygon['tile'] = [tile]
+                    polygon.to_file(outf)
+                    tile_list.append(tile)
+                    shp_flist.append(outf)
+                    break
                 break
 
-        rectangle_list = []
-        name_list = []
-        for pos_code in pos_dict:
-            print(pos_code)
-            originX = pos_dict[pos_code]['originX']
-            originY = pos_dict[pos_code]['originY']
-            endX = pos_dict[pos_code]['endX']
-            endY = pos_dict[pos_code]['endY']
-            ll_point = (originX, originY)
-            lr_point = (endX, originY)
-            ur_point = (endX, endY)
-            ul_point = (originX, endY)
-            polygon_geom = Polygon([ll_point, lr_point, ur_point, ul_point])
-            rectangle_list.append(polygon_geom)
-            name_list.append(pos_code)
-
-        outf = join(outdir, 'sites.shp')
-        crs = {'init': 'epsg:6933'}  # 设置坐标系
-        polygon = gpd.GeoDataFrame(crs=crs, geometry=rectangle_list)  # 将多边形对象转换为GeoDataFrame对象
-        polygon['name'] = name_list
-        polygon.to_file(outf)
-
-    def concatenate(self):
-        # eat more than 100GB memory
-        fdir = join(self.data_dir, 'reproj_qa')
-        outdir = join(self.data_dir,'reproj_qa_concatenate')
-        T.mkdir(outdir)
-
-        selected_bands = [
-            'B02',
-            'B03',
-            'B04',
-            'B05',
-            'B06',
-            'B07',
-        ]
-        year_list = [2019,2020,2021,2022,2023]
-        sat_list = ['L30','S30']
-
-        params_list = []
-        for sat in sat_list:
-            outdir_sat = join(outdir,sat)
-            for band in selected_bands:
-                outdir_band = join(outdir_sat,band)
-                for year in year_list:
-                    params = fdir, outdir_band, sat, band, year
-                    params_list.append(params)
-        MULTIPROCESS(self.kernel_concatenate,params_list).run(8)
-
-    def kernel_concatenate(self,params):
-        fdir, outdir_band, sat, band, year = params
-        outdir_year = join(outdir_band, str(year))
-        pos_dict = {}
-        for folder in tqdm(T.listdir(fdir)):
-            pos_code = folder.split('.')[2]
-            if not pos_code in pos_dict:
-                pos_dict[pos_code] = []
-            for f in T.listdir(join(fdir, folder)):
-                sat_ = f.split('.')[1]
-                band_ = f.split('.')[-2]
-                year_ = f.split('.')[3].split('T')[0][:4]
-                year_ = int(year_)
-                if not sat == sat_:
-                    continue
-                if not band == band_:
-                    continue
-                if not year == year_:
-                    continue
-                fpath = join(fdir, folder, f)
-                pos_dict[pos_code].append(join(fdir, folder, f))
-        for pos_code in pos_dict:
-            outdir_pos = join(outdir_year, pos_code)
-            try:
-                T.mkdir(outdir_pos, force=True)
-            except:
-                pass
-            fpath_list = pos_dict[pos_code]
-            self.data_transform(fpath_list, outdir_pos)
-
-        pass
-
-    def data_transform(self, fpath_list,outdir, n=100000):
-        n = int(n)
-        Tools().mkdir(outdir)
-        # per_pix_data
-        # fpath_list
-        all_array = []
-        # for d in date_list:
-        for fpath in tqdm(fpath_list,desc='loading tifs'):
-            if fpath.endswith('.tif'):
-                # print(d)
-                array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(fpath)
-                array = np.array(array, dtype=float)
-                all_array.append(array)
-
-        row = len(all_array[0])
-        col = len(all_array[0][0])
-        all_array = np.array(all_array)
-        all_array = all_array.T
-        void_dic = {}
-        void_dic_list = []
-        for r in tqdm(list(range(row)),desc='transforming'):
-            for c in range(col):
-                time_series = all_array[c][r]
-                time_series = np.array(time_series)
-                void_dic_list.append((r, c))
-                void_dic[(r, c)] = time_series
-        flag = 0
-        temp_dic = {}
-        for key in tqdm(void_dic_list, 'saving...'):
-            flag += 1
-            # print('saving ',flag,'/',len(void_dic)/100000)
-            arr = void_dic[key]
-            arr = np.array(arr)
-            temp_dic[key] = arr
-            if flag % n == 0:
-                # print('\nsaving %02d' % (flag / 10000)+'\n')
-                np.save(outdir + '/per_pix_dic_%05d' % (flag / n), temp_dic)
-                temp_dic = {}
-        np.save(outdir + '/per_pix_dic_%05d' % 0, temp_dic)
-
-    def aggragate(self):
-        fdir = join(self.data_dir,'reproj_qa_concatenate')
-        outdir = join(self.data_dir,'reproj_qa_concatenate_aggragate')
-
-        params_list = []
-        for tile in self.tile_list:
-            block_list = self.block_dict[tile]
-            for block in block_list:
-                params = [fdir,tile,block,outdir]
-                params_list.append(params)
-
-        MULTIPROCESS(self.kernel_agg,params_list).run(process=30)
-
-    def kernel_agg(self,params):
-        fdir,tile,block,outdir = params
-        for band in self.bands_list:
-            fpath_list = []
-            for sat in self.sat_list:
-                for year in self.year_list:
-                    fpath = join(fdir, '/'.join([sat, band, year, tile, block]))
-                    fpath_list.append(fpath)
-            outdir_i = join(outdir, band, tile)
-            try:
-                T.mkdir(outdir_i, force=True)
-            except:
-                pass
-            spatial_dict_all = {}
-            for fpath in fpath_list:
-                spatial_dict_i = T.load_npy(fpath)
-                spatial_dict_all[fpath] = spatial_dict_i
-            pix_list = spatial_dict_all[fpath_list[0]].keys()
-            spatial_dict_mean = {}
-            # for pix in tqdm(pix_list,desc=f'{band}_{tile}_{block}'):
-            for pix in pix_list:
-                vals_list = np.array([])
-                for fpath in fpath_list:
-                    vals_i = spatial_dict_all[fpath][pix]
-                    vals_list = np.append(vals_list, vals_i)
-                if T.is_all_nan(vals_list):
-                    continue
-                vals_mean = np.nanmean(vals_list)
-                spatial_dict_mean[pix] = vals_mean
-            outf = join(outdir_i, block)
-            T.save_npy(spatial_dict_mean, outf)
-
-        pass
-
-    @Decorator.shutup_gdal
-    def spatial_dict_to_tif(self):
-        import GEDI
-        GEDI_wkt = GEDI.Preprocess_GEDI().get_WKT()
-        outdir = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif')
-        T.mkdir(outdir)
-        tile_list = self.tile_list
-        band_list = self.bands_list
-        tile_template_dict = self.get_tif_template()
-        for band in band_list:
-            outdir_i = join(outdir,band)
-            T.mkdir(outdir_i)
+        gdfs = [gpd.read_file(f).to_crs("EPSG:4326") for f in shp_flist]
+        gdf_merged = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
+        gdf_merged.to_file(join(outdir,'tiles_merge.shp'))
+        for f in T.listdir(outdir):
             for tile in tile_list:
-                print(band,tile,'\n')
-                spatial_dict_dir = join(self.data_dir,'reproj_qa_concatenate_aggragate',band,tile)
-                template_tif = tile_template_dict[tile]
-                outf = join(outdir_i,tile+'.tif')
-                D = DIC_and_TIF(tif_template=template_tif)
-
-                spatial_dict = T.load_npy_dir(spatial_dict_dir)
-                arr = D.pix_dic_to_spatial_arr(spatial_dict)
-                _, originX, originY, pixelWidth, pixelHeight, _ = self.raster2array(template_tif)
-                self.array2raster(outf, originX, originY, pixelWidth, pixelHeight, arr, GEDI_wkt)
-        pass
+                if tile in f:
+                    os.remove(join(outdir,f))
 
     def get_tif_template(self):
         tile_list = self.tile_list
@@ -694,132 +576,6 @@ class Preprocess_HLS:
             tile_template_dict[tile] = template_tif
         return tile_template_dict
 
-    @Decorator.shutup_gdal
-    def mosaic_spatial_tifs(self):
-
-        import GEDI
-        projection_wkt = GEDI.Preprocess_GEDI().get_WKT()
-        fdir = join(self.data_dir, 'reproj_qa_concatenate_aggragate_tif')
-        outdir = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic')
-        T.mkdir(outdir)
-        tile_list = self.tile_list
-        bands_list = self.bands_list
-        for band in bands_list:
-            print(band)
-            fpath_list = []
-            for tile in tile_list:
-                fpath = join(fdir,band,tile+'.tif')
-                fpath_list.append(fpath)
-            outf = join(outdir,f'{band}.tif')
-            self.__mosaic_spatial_tifs(fpath_list,outf,projection_wkt)
-        pass
-
-    def __mosaic_spatial_tifs(self,tif_list, output_path, dstSRS, output_format="GTiff", nodata_value=-999999):
-        # todo: add to lytools
-        ref_ds = gdal.Open(tif_list[0])
-        gt = ref_ds.GetGeoTransform()
-        xres = gt[1]
-        yres = gt[5]
-        tiles_info = []
-
-        for path in tif_list:
-            ds = gdal.Open(path)
-            gt_i = ds.GetGeoTransform()
-            x_min = gt_i[0]
-            y_max = gt_i[3]
-            x_max = x_min + ds.RasterXSize * gt_i[1]
-            y_min = y_max + ds.RasterYSize * gt_i[5]
-            tiles_info.append((path, x_min, x_max, y_min, y_max))
-
-        x_mins = [i[1] for i in tiles_info]
-        x_maxs = [i[2] for i in tiles_info]
-        y_mins = [i[3] for i in tiles_info]
-        y_maxs = [i[4] for i in tiles_info]
-
-        x_min_all, x_max_all = min(x_mins), max(x_maxs)
-        y_min_all, y_max_all = min(y_mins), max(y_maxs)
-
-        cols = int((x_max_all - x_min_all) / xres)
-        rows = int((y_max_all - y_min_all) / abs(yres))
-
-        mosaic = np.ones((rows, cols), dtype=np.float32) * nodata_value
-        count = np.zeros((rows, cols), dtype=np.uint16)  # 记录每个像素被填充次数
-        # nodata = nodata_value
-
-        for path, xmin, xmax, ymin, ymax in tiles_info:
-            ds = gdal.Open(path)
-            data = ds.ReadAsArray().astype(np.float32)
-            gt_i = ds.GetGeoTransform()
-
-            # tile 在 mosaic 中的起始、结束行列号
-            x_off = int((xmin - x_min_all) / xres)
-            y_off = int((y_max_all - ymax) / abs(yres))
-            h, w = ds.RasterYSize, ds.RasterXSize
-            data[np.isnan(data)] = nodata_value
-
-            mask = data != nodata_value  # 有效像素
-            sub = mosaic[y_off:y_off+h, x_off:x_off+w]
-
-            empty = sub == nodata_value
-            fill_mask = mask & empty
-            sub[fill_mask] = data[fill_mask]
-            mosaic[y_off:y_off + h, x_off:x_off + w] = sub
-
-        driver = gdal.GetDriverByName('GTiff')
-        out_ds = driver.Create(output_path, cols, rows, 1, gdal.GDT_Float32,
-                               options=['COMPRESS=LZW', 'BIGTIFF=YES'])
-        out_gt = (x_min_all, xres, 0, y_max_all, 0, yres)
-        out_ds.SetGeoTransform(out_gt)
-        out_ds.SetProjection(dstSRS)
-
-        out_band = out_ds.GetRasterBand(1)
-        out_band.WriteArray(mosaic)
-        out_band.SetNoDataValue(nodata_value)
-        out_band.FlushCache()
-
-        out_ds = None
-        pass
-
-
-    @Decorator.shutup_gdal
-    def merge_bands(self,nodata_value=-999999):
-        import GEDI
-        projection_wkt = GEDI.Preprocess_GEDI().get_WKT()
-        fdir = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic')
-        outdir = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands')
-        T.mkdir(outdir)
-        tile_list = self.tile_list
-        tif_list = []
-        bands_name_list = []
-        for band in self.bands_list:
-            fpath = join(fdir,band+'.tif')
-            tif_list.append(fpath)
-            bands_name_list.append(band)
-        # print(tif_list)
-        # print(bands_name_list)
-        # exit()
-        outf = join(outdir,'B2-B7.tif')
-
-        src0 = gdal.Open(tif_list[0])
-        driver = gdal.GetDriverByName('GTiff')
-        out_ds = driver.Create(outf,
-                               src0.RasterXSize,
-                               src0.RasterYSize,
-                               len(tif_list),
-                               gdal.GDT_Float32)
-
-        out_ds.SetGeoTransform(src0.GetGeoTransform())
-        out_ds.SetProjection(projection_wkt)
-
-        for idx, tif in enumerate(tif_list, start=1):
-            src = gdal.Open(tif)
-            band = src.GetRasterBand(1).ReadAsArray()
-            out_ds.GetRasterBand(idx).WriteArray(band)
-            out_ds.GetRasterBand(idx).SetDescription(bands_name_list[idx - 1])
-            out_ds.GetRasterBand(idx).SetNoDataValue(nodata_value)
-
-        out_ds.FlushCache()
-        out_ds = None
 
     def plot_time_series(self):
         fdir = join(self.data_dir,'reproj_qa_concatenate')
@@ -1046,10 +802,14 @@ class Download_From_GEE_1km:
 
 class Tif_loader:
 
-    def __init__(self,flist,memory_allocate,dtype=None):
+    def __init__(self,flist,memory_allocate,dtype=None,nodata=None):
         self.flist = flist
         self.memory_allocate = memory_allocate
         self.profile = self.get_image_profiles(flist[0])
+        if nodata==None:
+            pass
+        else:
+            self.profile.update(nodata=nodata)
         # pprint(profile)
         self.h = self.profile['height']
         self.w = self.profile['width']
@@ -1057,10 +817,16 @@ class Tif_loader:
             self.dtype = self.profile['dtype']
         else:
             self.dtype = dtype
+        self.profile.update(dtype=self.dtype)
+        # pprint(self.profile)
         self.available_rows = self.get_available_rows(self.memory_allocate, len(flist), self.h, self.w, dtype=self.dtype)
         self.iter_length = math.ceil(self.h / self.available_rows)
         self.block_index_list = list(range(math.ceil(self.h / self.available_rows)))
-        print('sliding rows',self.available_rows)
+        print('input file size:', f'h:{self.h},w:{self.w}')
+        print('input file count:', len(self.flist))
+        print('output block size:', f'h:{self.available_rows},w:{self.w}')
+        print('output block count:', self.iter_length)
+        print('------------------')
         pass
 
     def array_iterator(self):
@@ -1159,6 +925,79 @@ class Tif_loader:
             profile = src.profile
             return profile
 
+    def transform_to_block(self,outdir,njob=8):
+        T.mkdir(outdir)
+        flist = self.flist
+        band_name_list = []
+        for fpath in flist:
+            fpath_obj = Path(fpath)
+            band_name = fpath_obj.name
+            band_name_list.append(band_name)
+        if njob == 1:
+            for idx in tqdm(self.block_index_list,desc='transform to block'):
+                patch_concat,profile_new = self.array_iterator_index(idx)
+                outf = join(outdir,f'{self.get_digit_str(self.iter_length,idx)}.tif')
+                RasterIO_Func().write_tif_multi_bands(patch_concat, outf, profile_new, band_name_list)
+        else:
+            params_list = []
+            for idx in self.block_index_list:
+                params = [outdir,idx,band_name_list]
+                params_list.append(params)
+            MULTIPROCESS(self.kernel_transform_to_block,params_list).run(process=njob)
+        pass
+
+    def kernel_transform_to_block(self,params):
+        outdir,idx,band_name_list = params
+        patch_concat, profile_new = self.array_iterator_index(idx)
+        outf = join(outdir, f'{self.get_digit_str(self.iter_length, idx)}.tif')
+        RasterIO_Func().write_tif_multi_bands(patch_concat, outf, profile_new, band_name_list)
+
+    def transform_to_spatial_dict(self,outdir,njob=8):
+        T.mkdir(outdir)
+        flist = self.flist
+        band_name_list = []
+        for fpath in flist:
+            fpath_obj = Path(fpath)
+            band_name = fpath_obj.name
+            band_name_list.append(band_name)
+        if njob == 1:
+            for idx in tqdm(self.block_index_list,desc='transform to spatial dict'):
+                patch_concat,profile_new = self.array_iterator_index(idx)
+                row_size = patch_concat.shape[1]
+                col_size = patch_concat.shape[2]
+                spatial_dict = {}
+                for r in range(row_size):
+                    for c in range(col_size):
+                        vals = patch_concat[:,r,c]
+                        spatial_dict[(r+idx*self.available_rows,c)] = vals
+                outf = join(outdir,f'{self.get_digit_str(self.iter_length,idx)}.npy')
+                T.save_npy(spatial_dict,outf)
+        else:
+            params_list = []
+            for idx in self.block_index_list:
+                params = [outdir,idx]
+                params_list.append(params)
+            MULTIPROCESS(self.kernel_transform_to_spatial_dict,params_list).run(process=njob)
+
+    def kernel_transform_to_spatial_dict(self,params):
+        outdir, idx = params
+        patch_concat, profile_new = self.array_iterator_index(idx)
+        row_size = patch_concat.shape[1]
+        col_size = patch_concat.shape[2]
+        spatial_dict = {}
+        for r in range(row_size):
+            for c in range(col_size):
+                vals = patch_concat[:, r, c]
+                spatial_dict[(r + idx * self.available_rows, c)] = vals
+        outf = join(outdir, f'{self.get_digit_str(self.iter_length, idx)}.npy')
+        T.save_npy(spatial_dict, outf)
+
+    def get_digit_str(self,total_len,idx):
+        digit = math.log(total_len, 10) + 1
+        digit = int(digit)
+        digit_str = f'{idx:0{digit}d}'
+        return digit_str
+
 class RasterIO_Func:
 
     def __init__(self):
@@ -1170,6 +1009,7 @@ class RasterIO_Func:
             dst.write(array, 1)
 
     def write_tif_multi_bands(self, array_3d, outf, profile, bands_description: list = None):
+        profile.update(count=array_3d.shape[0])
         with rasterio.open(outf, "w", **profile) as dst:
             for i in range(array_3d.shape[0]):
                 dst.write(array_3d[i], i + 1)
@@ -1180,6 +1020,7 @@ class RasterIO_Func:
         with rasterio.open(fpath) as src:
             data = src.read()
             profile = src.profile
+            data = data.squeeze()
             return data,profile
 
     def crop_tif(self,fpath,outf,in_shp):
@@ -1221,6 +1062,22 @@ class RasterIO_Func:
             "transform": mosaic_transform
         })
         return mosaic,out_profile
+
+    def get_tif_bounds(self,fpath):
+        array,profile = self.read_tif(fpath)
+        crs = profile['crs']
+        originX = profile['transform'][2]
+        originY = profile['transform'][5]
+        pixelWidth = profile['transform'][0]
+        pixelHeight = profile['transform'][4]
+        endX = originX + array.shape[1] * pixelWidth
+        endY = originY + array.shape[0] * pixelHeight
+        ll_point = (originX, originY)
+        lr_point = (endX, originY)
+        ur_point = (endX, endY)
+        ul_point = (originX, endY)
+        return ll_point,lr_point,ur_point,ul_point
+
 
 def main():
     # Download().run()
