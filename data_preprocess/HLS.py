@@ -1078,6 +1078,39 @@ class RasterIO_Func:
         ul_point = (originX, endY)
         return ll_point,lr_point,ur_point,ul_point
 
+class KML:
+
+    def __init__(self):
+
+        pass
+
+    def kml_to_shp(self):
+        import geopandas as gpd
+        import shapely
+        from shapely import wkt
+        kml_fpath = join(data_root, 'global_tiles_HLS',
+                         'S2A_OPER_GIP_TILPAR_MPC__20151209T095117_V20150622T000000_21000101T000000_B00.kml')
+        outf = join(data_root, 'global_tiles_HLS', 'HLS_tiles.shp')
+        print(isfile(kml_fpath))
+        gdf = gpd.read_file(kml_fpath, driver="KML")
+        gdf.drop(columns=['Description'], inplace=True)
+
+        geometry_list = []
+        for i, row in tqdm(gdf.iterrows(), total=len(gdf)):
+            GEOMETRYCOLLECTION = row.geometry
+            GEOMETRYCOLLECTION_2d = shapely.force_2d(GEOMETRYCOLLECTION)
+            GEOMETRYCOLLECTION_2d = str(GEOMETRYCOLLECTION_2d)
+
+            geom = wkt.loads(GEOMETRYCOLLECTION_2d)
+            polygons = [g for g in geom.geoms if g.geom_type == "Polygon"]
+            poly = polygons[0]
+            geometry_list.append(poly)
+        gdf["geometry"] = geometry_list
+        gdf = gdf[gdf.geometry.type.isin(["Polygon", "MultiPolygon"])]
+        gdf = gdf.set_crs("EPSG:4326")
+        gdf.to_file(outf)
+        print('done')
+
 
 def main():
     # Download().run()
