@@ -10,6 +10,8 @@ from rasterio.windows import Window
 from rasterio.mask import mask
 from rasterio.merge import merge
 from rasterio.io import MemoryFile
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+
 import geopandas as gpd
 from __init__ import *
 
@@ -34,17 +36,57 @@ class Download:
         # self.data_dir = '/data/home/wenzhang/Yang/HLS/'
         self.data_dir = this_script_root
         self.get_account_passwd()
+        self.geojson_fpath = join(data_root,'global_tiles_HLS','nm.geojson')
 
         pass
 
     def run(self):
-        # self.gen_urls_test()
+        # self.kml_to_shp()
         # self.gen_urls()
         self.download()
         # self.check_download()
         # self.move_tile_to_different_folder()
         # self.delete_empty_folders()
         pass
+
+    def kml_to_shp(self):
+        # download from:
+        # https://hls.gsfc.nasa.gov/wp-content/uploads/2016/03/S2A_OPER_GIP_TILPAR_MPC__20151209T095117_V20150622T000000_21000101T000000_B00.kml
+        # website: https://hls.gsfc.nasa.gov/products-description/tiling-system/
+        import geopandas as gpd
+        import shapely
+        from shapely import wkt
+        kml_fpath = join(data_root, 'global_tiles_HLS',
+                         'S2A_OPER_GIP_TILPAR_MPC__20151209T095117_V20150622T000000_21000101T000000_B00.kml')
+        outf = join(data_root, 'global_tiles_HLS', 'HLS_tiles.shp')
+        print(isfile(kml_fpath))
+        gdf = gpd.read_file(kml_fpath, driver="KML")
+        gdf.drop(columns=['Description'], inplace=True)
+
+        geometry_list = []
+        for i, row in tqdm(gdf.iterrows(), total=len(gdf)):
+            GEOMETRYCOLLECTION = row.geometry
+            GEOMETRYCOLLECTION_2d = shapely.force_2d(GEOMETRYCOLLECTION)
+            GEOMETRYCOLLECTION_2d = str(GEOMETRYCOLLECTION_2d)
+
+            geom = wkt.loads(GEOMETRYCOLLECTION_2d)
+            polygons = [g for g in geom.geoms if g.geom_type == "Polygon"]
+            poly = polygons[0]
+            geometry_list.append(poly)
+        gdf["geometry"] = geometry_list
+        gdf = gdf[gdf.geometry.type.isin(["Polygon", "MultiPolygon"])]
+        gdf = gdf.set_crs("EPSG:4326")
+        gdf.to_file(outf)
+        print('done')
+
+
+    def get_tiles_from_geojson(self,fpath):
+        # print(isfile(fpath))
+        gdf = gp.read_file(fpath)
+        Name_list = gdf['Name'].to_list()
+        Name_list = [f'T{name}' for name in Name_list]
+        return Name_list
+
 
     def gen_urls_test(self):
         # outdir = join(self.data_dir, 'url_list')
@@ -79,16 +121,19 @@ class Download:
         pass
 
     def gen_urls(self):
+        geojson_fpath = self.geojson_fpath
         outdir = join(self.data_dir, 'url_list')
         T.mkdir(outdir, force=True)
-        outf = join(outdir, 'santarita.txt')
+        geojson_name = Path(geojson_fpath).name
+        outf = join(outdir, geojson_fpath.replace('.geojson', '.txt'))
         if isfile(outf):
             return
         earthaccess.login(persist=True)
         # earthaccess.download()
-        field = gp.read_file('santarita.geojson')
+        field = gp.read_file(geojson_fpath)
         bbox = tuple(list(field.total_bounds))
-        # print(bbox)
+        tiles_list = self.get_tiles_from_geojson(geojson_fpath)
+        # print(tiles_list)
         # exit()
         temporal = ("2019-01-01T00:00:00", "2023-12-31T23:59:59")
 
@@ -106,6 +151,9 @@ class Download:
         fw = open(outf,'w')
         for url_list in hls_results_urls:
             for url in url_list:
+                url_tile = url.split('/')[-1].split('.')[2]
+                if not url_tile in tiles_list:
+                    continue
                 fw.write(url + '\n')
         fw.close()
         pass
@@ -123,10 +171,10 @@ class Download:
             'Fmask'
         ]
         hls_results_urls = []
-        with open(join(self.data_dir, 'url_list', 'santarita.txt'), 'r') as f:
+        geojson_name = Path(self.geojson_fpath).name
+        with open(join(self.data_dir, 'url_list', geojson_name.replace('.geojson', '.txt')), 'r') as f:
             for line in f:
                 hls_results_urls.append(line.strip())
-
         session = requests.Session()
         session.auth = requests.auth.HTTPBasicAuth(self.username, self.password)
         params_list = []
@@ -156,31 +204,75 @@ class Download:
         if isfile(outf):
             return
         try:
-            fw = open(outf,'wb')
-
-            r = session.get(url,stream=True)
-            for chunk in r.iter_content(chunk_size=8192):
-                fw.write(chunk)
-            fw.close()
+            self.download_i(outf,session,url)
         except Exception as e:
             print('error')
             print(e)
             print('--------')
-            return
 
-    @Decorator.shutup_gdal
-    def check_download(self):
-        fdir = join(self.data_dir,'Download')
-        for folder in tqdm(T.listdir(fdir)):
-            for f in T.listdir(join(fdir,folder)):
-                fpath = join(fdir,folder,f)
+        fail_time = 0
+        while 1:
+            ok = self.check_download_single_file(outf)
+            if ok and fail_time > 0:
+                print(f'download successful after {fail_time} times trials')
+                fail_time = 0
+                break
+            else:
+                fail_time += 1
+                if fail_time > 10:
+                    print('download failed after 10 times trials')
+                os.remove(outf)
+                sleep(10)
                 try:
-                    raster = gdal.Open(fpath)
-                    raster.GetProjection()
-                except:
-                    print(fpath)
-                    os.remove(fpath)
+                    self.download_i(outf, session, url)
+                except Exception as e:
+                    print(f'error times {fail_time}: {url}')
+                    print(e)
+                    print('--------')
+
+    def download_i(self,outf,session,url):
+        fw = open(outf, 'wb')
+
+        r = session.get(url, stream=True)
+        for chunk in r.iter_content(chunk_size=8192):
+            fw.write(chunk)
+        fw.close()
         pass
+
+    def check_download(self):
+        tiles = self.get_tiles_from_geojson(self.geojson_fpath)
+        print(tiles)
+        fdir = join(self.data_dir,'Download')
+        params_list = []
+        for i,tile in enumerate(tiles):
+            for folder in T.listdir(join(fdir,tile)):
+                params = [fdir,tile,folder]
+                params_list.append(params)
+                # self.kernel_check_download(params)
+        MULTIPROCESS(self.kernel_check_download,params_list).run(process=10, process_or_thread='t')
+        pass
+
+    def kernel_check_download(self,params):
+        fdir,tile,folder = params
+        for f in T.listdir(join(fdir, tile, folder)):
+            fpath = join(fdir, tile, folder, f)
+            ok = self.check_download_single_file(fpath)
+            if not ok:
+                print(fpath)
+                os.remove(fpath)
+        pass
+
+    def check_download_single_file(self,fpath):
+        try:
+            with rasterio.open(fpath) as src:
+                profile = src.profile
+                height = profile['height']
+                width = profile['width']
+                data = src.read(window=((height - 1, height), (width - 1, width)))
+                # data = src.read(window=((0, 1), (0, 1)))
+                return True
+        except:
+            return False
 
     def move_tile_to_different_folder(self):
         # fdir = join(self.data_dir,'Download')
@@ -215,6 +307,7 @@ class Download:
         self.username = account
         self.password = passwd
 
+
 class Preprocess_HLS:
     def __init__(self):
         self.data_dir = this_script_root
@@ -225,6 +318,8 @@ class Preprocess_HLS:
         # self.gen_image_shp()
         self.quality_control_long_term_mean()
         # self.mosaic_merge_bands_tifs()
+        # self.re_proj()
+        # self.mosaic_utah()
         # self.plot_time_series()
         # self.get_tif_template()
         # self.resample_to_1km()
@@ -255,38 +350,25 @@ class Preprocess_HLS:
         pass
 
     def re_proj(self):
-        import GEDI
-        wkt_dest = GEDI.Preprocess_GEDI().get_WKT()
-        fdir = join(self.data_dir,'Download')
-        outdir = join(self.data_dir,'reproj')
-        T.mkdir(outdir)
-        params_list = []
-        invalid_fpath = []
-        for folder in tqdm(T.listdir(fdir)):
-            outdir_i = join(outdir,folder)
-            for f in T.listdir(join(fdir,folder)):
-                fpath = join(fdir,folder,f)
-                outpath = join(outdir_i,f)
-                # print(outpath)
-                try:
-                    src_wkt = self.get_WKT(fpath)
-                except:
-                    print(fpath)
-                    invalid_fpath.append(fpath)
-                    src_wkt = None
-                # ToRaster().resample_reproj(fpath, outpath, 30, srcSRS=src_wkt, dstSRS=wkt_dest)
-                params_list.append([fpath, outpath, src_wkt, wkt_dest,outdir_i])
-        # pprint(invalid_fpath)
-        MULTIPROCESS(self.kernel_re_proj,params_list).run(process=30)
+        fdir = join(self.data_dir,'mosaic_merge_bands_tifs')
+        outdir = join(self.data_dir,'mosaic_merge_bands_tifs_reproj')
+        T.mkdir(outdir,force=True)
+        dst_crs = global_gedi_WKT()
+        for f in tqdm(T.listdir(fdir)):
+            fpath = join(fdir,f)
+            outf = join(outdir,f)
+            RasterIO_Func().reproject_tif(fpath,outf,dst_crs,dst_crs_res=30)
 
-    def kernel_re_proj(self,params):
-        fpath, outpath, src_wkt, wkt_dest,outdir_i = params
-        try:
-            T.mkdir(outdir_i, force=True)
-        except:
-            pass
+    def mosaic_utah(self):
+        tile_list = ['T12STG', 'T12STH', 'T12SUG', 'T12SUH', 'T12SVG', 'T12SVH']
+        fdir = join(self.data_dir,'mosaic_merge_bands_tifs_reproj')
+        outdir = join(self.data_dir,'mosaic_utah')
+        T.mkdir(outdir,force=True)
+        outf = join(outdir,'mosaic_utah_reproj.tif')
+        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
+        RasterIO_Func().mosaic_tifs(flist,outf)
+        pass
 
-        ToRaster().resample_reproj(fpath, outpath, 30, srcSRS=src_wkt, dstSRS=wkt_dest)
 
     def get_WKT(self,fpath):
         raster = gdal.Open(fpath)
@@ -294,7 +376,11 @@ class Preprocess_HLS:
         return projection_wkt
 
     def quality_control_long_term_mean(self):
-        outdir = join(self.data_dir,'quality_control_long_term_mean2')
+        geojson_fpath = Download().geojson_fpath
+        tile_list = Download().get_tiles_from_geojson(geojson_fpath)
+        # print(tile_list)
+        # exit()
+        outdir = join(self.data_dir,'quality_control_long_term_mean')
         T.mkdir(outdir,force=True)
         njob = 32
         memory_allocate = 0.5 # in GB, 6nGB, njob = tot mem/6nGB
@@ -302,7 +388,8 @@ class Preprocess_HLS:
         band_list = self.bands_list
         fdir = join(self.data_dir,'Download')
         params_list = []
-        for tile in T.listdir(fdir):
+        # for tile in T.listdir(fdir):
+        for tile in tile_list:
             dtype = np.int16
             # get QA 3d array
             flist_qa = []
@@ -310,8 +397,7 @@ class Preprocess_HLS:
                 qa_fpath = join(fdir,tile, folder, f'{folder}.Fmask.tif')
                 flist_qa.append(qa_fpath)
             # flist_qa = flist_qa[:10]
-            Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype)
-            exit()
+            Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype,mute=True)
 
             # get each band 3d array
             for band in band_list:
@@ -320,7 +406,7 @@ class Preprocess_HLS:
                     band_fpath = join(fdir, tile, folder, f'{folder}.{band}.tif')
                     band_fpath_list.append(band_fpath)
                 # band_fpath_list = band_fpath_list[:10]
-                Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype)
+                Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype,mute=True)
                 for idx in Tif_loader_band.block_index_list:
                     params = [Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band]
                     params_list.append(params)
@@ -370,13 +456,16 @@ class Preprocess_HLS:
 
     def mosaic_merge_bands_tifs(self):
         fdir = join(self.data_dir,'quality_control_long_term_mean')
-        outdir = join(self.data_dir,'mosaic_merge_bands_tifs')
+        outdir = join(self.data_dir,'mosaic_merge_bands_tifs1')
         T.mkdir(outdir,force=True)
+        flag = 0
+        total_flag = len(T.listdir(fdir))
         for tile in T.listdir(fdir):
             mosaic_list = []
             band_name_list = []
             out_profile = ''
-            for band in tqdm(T.listdir(join(fdir,tile))):
+            flag += 1
+            for band in tqdm(T.listdir(join(fdir,tile)),desc=f'{flag}/{total_flag} {tile}'):
                 array_list = []
                 profile_list = []
                 for f in T.listdir(join(fdir,tile,band)):
@@ -802,7 +891,7 @@ class Download_From_GEE_1km:
 
 class Tif_loader:
 
-    def __init__(self,flist,memory_allocate,dtype=None,nodata=None):
+    def __init__(self,flist,memory_allocate,dtype=None,nodata=None,mute=False):
         self.flist = flist
         self.memory_allocate = memory_allocate
         self.profile = self.get_image_profiles(flist[0])
@@ -822,11 +911,12 @@ class Tif_loader:
         self.available_rows = self.get_available_rows(self.memory_allocate, len(flist), self.h, self.w, dtype=self.dtype)
         self.iter_length = math.ceil(self.h / self.available_rows)
         self.block_index_list = list(range(math.ceil(self.h / self.available_rows)))
-        print('input file size:', f'h:{self.h},w:{self.w}')
-        print('input file count:', len(self.flist))
-        print('output block size:', f'h:{self.available_rows},w:{self.w}')
-        print('output block count:', self.iter_length)
-        print('------------------')
+        if not mute:
+            print('input file size:', f'h:{self.h},w:{self.w}')
+            print('input file count:', len(self.flist))
+            print('output block size:', f'h:{self.available_rows},w:{self.w}')
+            print('output block count:', self.iter_length)
+            print('------------------')
         pass
 
     def array_iterator(self):
@@ -998,6 +1088,22 @@ class Tif_loader:
         digit_str = f'{idx:0{digit}d}'
         return digit_str
 
+    def check_tifs(self):
+        failed_flist = []
+        for fpath in self.flist:
+            try:
+                with rasterio.open(fpath) as src:
+                    profile = src.profile
+                    # print(profile)
+            except Exception as e:
+                print(f'check tif error:{fpath}')
+                print(e)
+                print('----')
+                failed_flist.append(fpath)
+        return failed_flist
+        pass
+
+
 class RasterIO_Func:
 
     def __init__(self):
@@ -1009,6 +1115,9 @@ class RasterIO_Func:
             dst.write(array, 1)
 
     def write_tif_multi_bands(self, array_3d, outf, profile, bands_description: list = None):
+        dimension = array_3d.ndim
+        if dimension == 2:
+            array_3d = array_3d[np.newaxis, ... ]
         profile.update(count=array_3d.shape[0])
         with rasterio.open(outf, "w", **profile) as dst:
             for i in range(array_3d.shape[0]):
@@ -1063,6 +1172,18 @@ class RasterIO_Func:
         })
         return mosaic,out_profile
 
+    def mosaic_tifs(self,flist,outf):
+        array_list = []
+        profile_list = []
+        for fpath in flist:
+            array,profile = self.read_tif(fpath)
+            array_list.append(array)
+            profile_list.append(profile)
+        mosaic,out_profile = self.mosaic_arrays(array_list,profile_list)
+        self.write_tif_multi_bands(mosaic, outf, out_profile)
+
+        pass
+
     def get_tif_bounds(self,fpath):
         array,profile = self.read_tif(fpath)
         crs = profile['crs']
@@ -1078,38 +1199,30 @@ class RasterIO_Func:
         ul_point = (originX, endY)
         return ll_point,lr_point,ur_point,ul_point
 
-class KML:
+    def reproject_tif(self,fpath,outf,dst_crs,dst_crs_res=None):
+        with rasterio.open(fpath) as src:
+            transform, width, height = calculate_default_transform(
+                src.crs, dst_crs, src.width, src.height, *src.bounds,resolution=dst_crs_res
+            )
+            profile = src.profile
+            profile.update({
+                "crs": dst_crs,
+                "transform": transform,
+                "width": width,
+                "height": height
+            })
+            with rasterio.open(outf, "w", **profile) as dst:
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rasterio.band(src, i),
+                        destination=rasterio.band(dst, i),
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=dst_crs,
+                        resampling=Resampling.nearest
+                    )
 
-    def __init__(self):
-
-        pass
-
-    def kml_to_shp(self):
-        import geopandas as gpd
-        import shapely
-        from shapely import wkt
-        kml_fpath = join(data_root, 'global_tiles_HLS',
-                         'S2A_OPER_GIP_TILPAR_MPC__20151209T095117_V20150622T000000_21000101T000000_B00.kml')
-        outf = join(data_root, 'global_tiles_HLS', 'HLS_tiles.shp')
-        print(isfile(kml_fpath))
-        gdf = gpd.read_file(kml_fpath, driver="KML")
-        gdf.drop(columns=['Description'], inplace=True)
-
-        geometry_list = []
-        for i, row in tqdm(gdf.iterrows(), total=len(gdf)):
-            GEOMETRYCOLLECTION = row.geometry
-            GEOMETRYCOLLECTION_2d = shapely.force_2d(GEOMETRYCOLLECTION)
-            GEOMETRYCOLLECTION_2d = str(GEOMETRYCOLLECTION_2d)
-
-            geom = wkt.loads(GEOMETRYCOLLECTION_2d)
-            polygons = [g for g in geom.geoms if g.geom_type == "Polygon"]
-            poly = polygons[0]
-            geometry_list.append(poly)
-        gdf["geometry"] = geometry_list
-        gdf = gdf[gdf.geometry.type.isin(["Polygon", "MultiPolygon"])]
-        gdf = gdf.set_crs("EPSG:4326")
-        gdf.to_file(outf)
-        print('done')
 
 
 def main():
