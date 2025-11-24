@@ -36,7 +36,7 @@ class Download:
         # self.data_dir = '/data/home/wenzhang/Yang/HLS/'
         self.data_dir = this_script_root
         self.get_account_passwd()
-        self.geojson_fpath = join(data_root,'global_tiles_HLS','nm.geojson')
+        self.geojson_fpath = join(data_root,'global_tiles_HLS','AZ.geojson')
 
         pass
 
@@ -125,7 +125,9 @@ class Download:
         outdir = join(self.data_dir, 'url_list')
         T.mkdir(outdir, force=True)
         geojson_name = Path(geojson_fpath).name
-        outf = join(outdir, geojson_fpath.replace('.geojson', '.txt'))
+        outf = join(outdir, geojson_name.replace('.geojson', '.txt'))
+        # print(outf)
+        # exit()
         if isfile(outf):
             return
         earthaccess.login(persist=True)
@@ -136,13 +138,14 @@ class Download:
         # print(tiles_list)
         # exit()
         temporal = ("2019-01-01T00:00:00", "2023-12-31T23:59:59")
-
+        print('fetching urls')
         results = earthaccess.search_data(
             short_name=['HLSL30', 'HLSS30'],
             bounding_box=bbox,
             temporal=temporal,
             # count=5
         )
+        print('done')
         # print(results)
         # filelist = earthaccess.download(results, local_path=outdir)
 
@@ -202,7 +205,11 @@ class Download:
             pass
         outf = join(outdir_i,url.split('/')[-1])
         if isfile(outf):
-            return
+            if self.check_download_single_file(outf):
+                return
+            else:
+                print(f'download error, removing {outf}')
+                os.remove(outf)
         try:
             self.download_i(outf,session,url)
         except Exception as e:
@@ -213,8 +220,9 @@ class Download:
         fail_time = 0
         while 1:
             ok = self.check_download_single_file(outf)
-            if ok and fail_time > 0:
-                print(f'download successful after {fail_time} times trials')
+            if ok:
+                if fail_time > 0:
+                    print(f'download successful after {fail_time} times trials')
                 fail_time = 0
                 break
             else:
@@ -299,7 +307,8 @@ class Download:
         pass
 
     def get_account_passwd(self):
-        passwd_fpath = 'passwd.txt'
+        # passwd_fpath = 'passwd.txt'
+        passwd_fpath = join(conf_root,'passwd.txt')
         with open(passwd_fpath, 'r') as f:
             lines = f.readlines()
         account = lines[0].strip()
@@ -316,10 +325,11 @@ class Preprocess_HLS:
 
     def run(self):
         # self.gen_image_shp()
-        self.quality_control_long_term_mean()
+        # self.quality_control_long_term_mean()
         # self.mosaic_merge_bands_tifs()
         # self.re_proj()
         # self.mosaic_utah()
+        self.mosaic_nm()
         # self.plot_time_series()
         # self.get_tif_template()
         # self.resample_to_1km()
@@ -350,8 +360,8 @@ class Preprocess_HLS:
         pass
 
     def re_proj(self):
-        fdir = join(self.data_dir,'mosaic_merge_bands_tifs')
-        outdir = join(self.data_dir,'mosaic_merge_bands_tifs_reproj')
+        fdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm')
+        outdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm_reproj')
         T.mkdir(outdir,force=True)
         dst_crs = global_gedi_WKT()
         for f in tqdm(T.listdir(fdir)):
@@ -365,6 +375,16 @@ class Preprocess_HLS:
         outdir = join(self.data_dir,'mosaic_utah')
         T.mkdir(outdir,force=True)
         outf = join(outdir,'mosaic_utah_reproj.tif')
+        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
+        RasterIO_Func().mosaic_tifs(flist,outf)
+        pass
+
+    def mosaic_nm(self):
+        tile_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
+        fdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm_reproj')
+        outdir = join(self.data_dir,'mosaic_nm')
+        T.mkdir(outdir,force=True)
+        outf = join(outdir,'mosaic_nm_reproj.tif')
         flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
         RasterIO_Func().mosaic_tifs(flist,outf)
         pass
@@ -456,11 +476,13 @@ class Preprocess_HLS:
 
     def mosaic_merge_bands_tifs(self):
         fdir = join(self.data_dir,'quality_control_long_term_mean')
-        outdir = join(self.data_dir,'mosaic_merge_bands_tifs1')
+        outdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm')
+        tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
         T.mkdir(outdir,force=True)
         flag = 0
-        total_flag = len(T.listdir(fdir))
-        for tile in T.listdir(fdir):
+        total_flag = len(tiles_list)
+        # for tile in T.listdir(fdir):
+        for tile in tiles_list:
             mosaic_list = []
             band_name_list = []
             out_profile = ''
@@ -481,8 +503,6 @@ class Preprocess_HLS:
             outf = join(outdir,f'{tile}.tif')
             RasterIO_Func().write_tif_multi_bands(mosaic_list, outf, out_profile, band_name_list)
 
-            pass
-        pass
 
     def quality_control1(self):
         memory_allocate = 0.1 # in GB
@@ -1223,11 +1243,31 @@ class RasterIO_Func:
                         resampling=Resampling.nearest
                     )
 
+    def build_pyramid(self,
+            tif_path,
+            levels=(2, 4, 8, 16),
+            resampling="average",
+            compress="lzw",
+    ):
+
+        if not os.path.exists(tif_path):
+            raise FileNotFoundError(f"File not found: {tif_path}")
+
+        with rasterio.open(tif_path, 'r+') as ds:
+            resampling_method = getattr(Resampling, resampling)
+            ds.build_overviews(levels, resampling_method)
+            ds.update_tags(ns='rio_overview', resampling=resampling)
+
+            profile = ds.profile
+            profile.update(
+                tiled=True,
+                compress=compress
+            )
 
 
 def main():
-    # Download().run()
-    Preprocess_HLS().run()
+    Download().run()
+    # Preprocess_HLS().run()
     # Download_From_GEE_1km().run()
     pass
 
