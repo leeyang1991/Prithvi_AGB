@@ -325,11 +325,13 @@ class Preprocess_HLS:
 
     def run(self):
         # self.gen_image_shp()
-        # self.quality_control_long_term_mean()
-        # self.mosaic_merge_bands_tifs()
-        # self.re_proj()
+        # self.quality_control_long_term_mean() # 1.1
+        # self.mosaic_single_tile_and_merge_bands() # 1.2
+        # self.re_proj_30m() # 1.3
+        # self.mosaic_AZ() # 1.4
+        self.resample_30m_to_1km() # 1.5
         # self.mosaic_utah()
-        self.mosaic_nm()
+        # self.mosaic_nm()
         # self.plot_time_series()
         # self.get_tif_template()
         # self.resample_to_1km()
@@ -359,15 +361,54 @@ class Preprocess_HLS:
         self.block_dict = block_dict
         pass
 
-    def re_proj(self):
-        fdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm')
-        outdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm_reproj')
+    def re_proj_30m(self):
+        fdir = join(self.data_dir,'Preprocess/1.2_mosaic_single_tile_and_merge_bands')
+        outdir = join(self.data_dir,'Preprocess/1.3_reproj_30m')
         T.mkdir(outdir,force=True)
         dst_crs = global_gedi_WKT()
-        for f in tqdm(T.listdir(fdir)):
-            fpath = join(fdir,f)
-            outf = join(outdir,f)
-            RasterIO_Func().reproject_tif(fpath,outf,dst_crs,dst_crs_res=30)
+        dst_res = 30
+        params_list = []
+        for f in T.listdir(fdir):
+            params = [fdir,f,outdir,dst_crs,dst_res]
+            params_list.append(params)
+        MULTIPROCESS(self.kernel_re_proj,params_list).run(process=24)
+
+    def resample_30m_to_1km(self):
+        fpath = join(self.data_dir,'Preprocess/1.4_mosaic_AZ','AZ_6_bands.tif')
+        outdir = join(self.data_dir,'Preprocess/1.5_resample_30m_to_1km')
+        T.mkdir(outdir,force=True)
+        outf = join(outdir,'AZ_6_bands_resample_1km.tif')
+        dst_crs = global_gedi_WKT()
+        gedi_res = global_res_gedi
+        RasterIO_Func().reproject_tif(fpath,outf,dst_crs,dst_crs_res=gedi_res)
+
+        pass
+
+    def kernel_re_proj(self,params):
+        fdir,f,outdir,dst_crs,dst_res = params
+        fpath = join(fdir, f)
+        outf = join(outdir, f)
+        RasterIO_Func().reproject_tif(fpath, outf, dst_crs, dst_crs_res=dst_res)
+
+        pass
+
+    def mosaic_AZ(self):
+        geojson_fpath = join(data_root, 'global_tiles_HLS/AZ', 'AZ.geojson')
+        tile_list = Download().get_tiles_from_geojson(geojson_fpath)
+        # print(tile_list)
+        # exit()
+        fdir = join(self.data_dir,'Preprocess/1.3_reproj_30m')
+        outdir = join(self.data_dir,'Preprocess/1.4_mosaic_AZ')
+        T.mkdir(outdir,force=True)
+        outf = join(outdir,'AZ_6_bands.tif')
+        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
+        print('mosaic AZ')
+        RasterIO_Func().mosaic_tifs(flist,outf,bigtiff='YES')
+        print('mosaic AZ done')
+        print('building pyramid')
+        RasterIO_Func().build_pyramid(outf)
+        print('building pyramid done')
+        pass
 
     def mosaic_utah(self):
         tile_list = ['T12STG', 'T12STH', 'T12SUG', 'T12SUH', 'T12SVG', 'T12SVH']
@@ -396,20 +437,30 @@ class Preprocess_HLS:
         return projection_wkt
 
     def quality_control_long_term_mean(self):
-        geojson_fpath = Download().geojson_fpath
-        tile_list = Download().get_tiles_from_geojson(geojson_fpath)
+        # fdir = join(self.data_dir,'Downnload')
+        fdir = '/home/yangli/NVME4T/HLS_Download' # Ubuntu
+        # fdir = '/Volumes/NVME2T/HLS_Download' # Mac
+        # fdir = '/Volumes/NVME4T/HLS_Download' # Mac via Ubuntu
+        njob = 30  # Ubuntu
+        # njob = 8 # mac
+        # for tile in T.listdir(fdir)[::-1]:
+        #     print(tile)
+        # exit()
+        # geojson_fpath = Download().geojson_fpath
+        # tile_list = Download().get_tiles_from_geojson(geojson_fpath)
         # print(tile_list)
         # exit()
-        outdir = join(self.data_dir,'quality_control_long_term_mean')
+        outdir = join(self.data_dir,'Preprocess/1.1_quality_control_long_term_mean')
+        # print(isdir(outdir))
+        # exit()
         T.mkdir(outdir,force=True)
-        njob = 32
+
         memory_allocate = 0.5 # in GB, 6nGB, njob = tot mem/6nGB
         qa_filter_list = self.get_qa_filter_list()
         band_list = self.bands_list
-        fdir = join(self.data_dir,'Download')
         params_list = []
-        # for tile in T.listdir(fdir):
-        for tile in tile_list:
+        for tile in tqdm(T.listdir(fdir),desc='init data loader'):
+        # for tile in tile_list:
             dtype = np.int16
             # get QA 3d array
             flist_qa = []
@@ -442,11 +493,15 @@ class Preprocess_HLS:
         outf = join(outdir_i, f'{tile}.{band}.{idx:0{digit}d}.tif')
         # print(outf)
         if isfile(outf):
-            return
-
+            if self.check_outf_single_file(outf):
+                return
+            else:
+                print(f'file error, removing {outf}')
+                os.remove(outf)
         qa_patch_concat, qa_profile = Tif_loader_qa.array_iterator_index(idx)
         qa_filter_mask_list = []
         for qa_patch_concat_i in qa_patch_concat:
+        # for qa_patch_concat_i in tqdm(qa_patch_concat):
             qa_filter_mask = self.gen_qa_mask_array(qa_patch_concat_i, qa_filter_list)
             qa_filter_mask = qa_filter_mask.astype(bool)
             qa_filter_mask_list.append(qa_filter_mask)
@@ -471,38 +526,65 @@ class Preprocess_HLS:
             T.mkdir(outdir_i, force=True)
         except:
             pass
+        # print(band_patch_concat_average.shape)
         RasterIO_Func().write_tif(band_patch_concat_average, outf, band_profile)
 
+    def check_outf_single_file(self,fpath):
+        try:
+            with rasterio.open(fpath) as src:
+                profile = src.profile
+                height = profile['height']
+                width = profile['width']
+                data = src.read(window=((height - 1, height), (width - 1, width)))
+                data = src.read(window=((int(height/2) - 1, int(height/2)), (int(width/2) - 1, int(width/2))))
+                data = src.read(window=((0, 1), (0, 1)))
+                return True
+        except:
+            print(f'error reading {fpath}')
+            return False
 
-    def mosaic_merge_bands_tifs(self):
-        fdir = join(self.data_dir,'quality_control_long_term_mean')
-        outdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm')
-        tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
+    def mosaic_single_tile_and_merge_bands(self):
+        fdir = join(self.data_dir,'Preprocess/1.1_quality_control_long_term_mean')
+        outdir = join(self.data_dir,'Preprocess/1.2_mosaic_single_tile_and_merge_bands')
+        # tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
         T.mkdir(outdir,force=True)
-        flag = 0
-        total_flag = len(tiles_list)
-        # for tile in T.listdir(fdir):
-        for tile in tiles_list:
-            mosaic_list = []
-            band_name_list = []
-            out_profile = ''
-            flag += 1
-            for band in tqdm(T.listdir(join(fdir,tile)),desc=f'{flag}/{total_flag} {tile}'):
-                array_list = []
-                profile_list = []
-                for f in T.listdir(join(fdir,tile,band)):
-                    fpath = join(fdir,tile,band,f)
-                    array,profile = RasterIO_Func().read_tif(fpath)
-                    array_list.append(array)
-                    profile_list.append(profile)
-                mosaic,out_profile = RasterIO_Func().mosaic_arrays(array_list,profile_list)
-                mosaic = mosaic.squeeze()
-                mosaic_list.append(mosaic)
-                band_name_list.append(band)
-            mosaic_list = np.array(mosaic_list)
-            outf = join(outdir,f'{tile}.tif')
-            RasterIO_Func().write_tif_multi_bands(mosaic_list, outf, out_profile, band_name_list)
+        # total_flag = len(tiles_list)
+        total_flag = len(T.listdir(fdir))
+        # for tile in tiles_list:
 
+        params_list = []
+        for tile in T.listdir(fdir):
+            params = [fdir,outdir,tile]
+            params_list.append(params)
+        MULTIPROCESS(self.kernel_mosaic_single_tile_and_merge_bands,params_list).run(process=30)
+
+    def kernel_mosaic_single_tile_and_merge_bands(self,params):
+        fdir,outdir,tile = params
+        mosaic_list = []
+        band_name_list = []
+        out_profile = ''
+        # for band in tqdm(T.listdir(join(fdir,tile)),desc=f'{flag}/{total_flag} {tile}'):
+        for band in T.listdir(join(fdir, tile)):
+            array_list = []
+            profile_list = []
+            for f in T.listdir(join(fdir, tile, band)):
+                fpath = join(fdir, tile, band, f)
+                array, profile = RasterIO_Func().read_tif(fpath)
+                array_list.append(array)
+                profile_list.append(profile)
+            mosaic, out_profile = RasterIO_Func().mosaic_arrays(array_list, profile_list)
+            mosaic = mosaic.squeeze()
+            mosaic_list.append(mosaic)
+            band_name_list.append(band)
+        mosaic_list = np.array(mosaic_list)
+        outf = join(outdir, f'{tile}.tif')
+        if isfile(outf):
+            if self.check_outf_single_file(outf):
+                return
+            else:
+                os.remove(outf)
+        RasterIO_Func().write_tif_multi_bands(mosaic_list, outf, out_profile, band_name_list)
+        pass
 
     def quality_control1(self):
         memory_allocate = 0.1 # in GB
@@ -968,6 +1050,7 @@ class Tif_loader:
         row = row_list[idx]
         patch_concat_list = []
         for fpath in self.flist:
+        # for fpath in tqdm(self.flist):
             with rasterio.open(fpath) as src:
                 patch = src.read(
                     window=((row, row + self.available_rows),(0, self.w))
@@ -1169,7 +1252,7 @@ class RasterIO_Func:
 
     def mosaic_arrays(self,array_list,profile_list):
         datasets = []
-        for arr, prof in zip(array_list, profile_list):
+        for arr, prof in tqdm(zip(array_list, profile_list),total=len(array_list),desc='mosaic'):
             if arr.ndim == 2 and prof["count"] == 1:
                 arr = arr[np.newaxis, :, :]
 
@@ -1183,6 +1266,7 @@ class RasterIO_Func:
             with memfile.open(**prof) as dataset:
                 dataset.write(arr)
             datasets.append(memfile.open())
+        print('merging datasets...')
         mosaic, mosaic_transform = merge(datasets)
         out_profile = profile_list[0].copy()
         out_profile.update({
@@ -1190,16 +1274,19 @@ class RasterIO_Func:
             "width": mosaic.shape[2],
             "transform": mosaic_transform
         })
+        print('merging done')
         return mosaic,out_profile
 
-    def mosaic_tifs(self,flist,outf):
+    def mosaic_tifs(self,flist,outf,bigtiff="NO"):
         array_list = []
         profile_list = []
-        for fpath in flist:
+        for fpath in tqdm(flist,desc='read tifs'):
             array,profile = self.read_tif(fpath)
             array_list.append(array)
             profile_list.append(profile)
         mosaic,out_profile = self.mosaic_arrays(array_list,profile_list)
+        if bigtiff == "YES":
+            out_profile.update(bigtiff=bigtiff)
         self.write_tif_multi_bands(mosaic, outf, out_profile)
 
         pass
@@ -1248,26 +1335,34 @@ class RasterIO_Func:
             levels=(2, 4, 8, 16),
             resampling="average",
             compress="lzw",
+            bigtiff="No",
     ):
 
         if not os.path.exists(tif_path):
             raise FileNotFoundError(f"File not found: {tif_path}")
+        if bigtiff == 'YES':
+            with rasterio.open(tif_path) as src:
+                profile = src.profile
+                data = src.read()
+                profile.update(
+                    tiled=True,
+                    compress=compress,
+                    bigtiff=bigtiff,
+                )
+            with rasterio.open(tif_path, "w", **profile) as dst:
+                dst.write(data)
 
         with rasterio.open(tif_path, 'r+') as ds:
             resampling_method = getattr(Resampling, resampling)
             ds.build_overviews(levels, resampling_method)
             ds.update_tags(ns='rio_overview', resampling=resampling)
 
-            profile = ds.profile
-            profile.update(
-                tiled=True,
-                compress=compress
-            )
+
 
 
 def main():
-    Download().run()
-    # Preprocess_HLS().run()
+    # Download().run()
+    Preprocess_HLS().run()
     # Download_From_GEE_1km().run()
     pass
 
