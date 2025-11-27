@@ -9,87 +9,82 @@ this_script_root = join(data_root,'concat_data')
 class Concat_Data:
     def __init__(self):
         self.data_dir = this_script_root
+        self.resolution = '30m'
+        # self.resolution = '1km'
+
+        self.region = 'AZ'
         pass
 
     def run(self):
-        # self.Concat_1km()
-        self.Concat_30m()
+        self.Concat()
+        self.build_pyramid()
         pass
 
-    def Concat_1km(self):
-        outdir = join(self.data_dir,'tif')
+
+    def Concat(self):
+        outdir = join(self.data_dir,f'{self.resolution}')
         T.mkdir(outdir,force=True)
         band_list = global_band_list
         import HLS
         import additional_index
-        HLS_fpath = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
-        DEM_fpath = join(additional_index.DEM_1km().data_dir,'merge/DEM_1km_reproj6933_crop.tif')
-        ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'ndvi_1km.tif')
-        mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'mndwi_1km.tif')
-        nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'nbr_1km.tif')
-        ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'ndwi_1km.tif')
+        if self.resolution == '30m':
+            HLS_fpath = join(HLS.Preprocess_HLS().data_dir,f'Preprocess/1.4_mosaic/{self.region}_6_bands.tif')
+            DEM_fpath = join(additional_index.DEM_30m(region=self.region).data_dir,'merge/DEM_30m_reproj6933_crop.tif')
+            ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'ndvi.tif')
+            mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'mndwi.tif')
+            nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'nbr.tif')
+            ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'ndwi.tif')
+            outf = join(outdir,f'{self.region}_concat_30m.tif')
 
-        HLS_read = rasterio.open(HLS_fpath)
-        DEM_read = rasterio.open(DEM_fpath)
-        ndvi_read = rasterio.open(ndvi_fpath)
-        mndwi_read = rasterio.open(mndwi_fpath)
-        nbr_read = rasterio.open(nbr_fpath)
-        ndwi_read = rasterio.open(ndwi_fpath)
+        elif self.resolution == '1km':
+            HLS_fpath = join(HLS.Preprocess_HLS().data_dir, f'Preprocess/1.5_resample_30m_to_1km/{self.region}_6_bands_resample_1km.tif')
+            DEM_fpath = join(additional_index.DEM_1km().data_dir, f'{self.region}/DEM_1km_{self.region}.tif')
+            ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
+                              'ndvi.tif')
+            mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
+                               'mndwi.tif')
+            nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region, 'nbr.tif')
+            ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
+                              'ndwi.tif')
+            outf = join(outdir,f'{self.region}_concat_1km.tif')
 
-        HLS_data = HLS_read.read()
-        DEM_data = DEM_read.read()
-        ndvi_data = ndvi_read.read()
-        mndwi_data = mndwi_read.read()
-        nbr_data = nbr_read.read()
-        ndwi_data = ndwi_read.read()
+        else:
+            raise
+        print('reading data...')
+        HLS_data = rasterio.open(HLS_fpath).read()
+        DEM_data = rasterio.open(DEM_fpath).read()
+        ndvi_data = rasterio.open(ndvi_fpath).read()
+        mndwi_data = rasterio.open(mndwi_fpath).read()
+        nbr_data = rasterio.open(nbr_fpath).read()
+        ndwi_data = rasterio.open(ndwi_fpath).read()
         stack_data = np.concatenate((HLS_data, DEM_data, ndvi_data, mndwi_data, nbr_data, ndwi_data), axis=0)
-        profile = HLS_read.profile
-        profile.update(count=stack_data.shape[0])
+
+        print('reading done')
+
+        profile = rasterio.open(HLS_fpath).profile
+
+        profile.update(count=stack_data.shape[0],dtype=np.float32)
+        if self.resolution == '30m':
+            profile.update(
+                bigtiff='YES',
+            )
         # pprint(profile)
         # exit()
-        outf = join(outdir,'concat_1km.tif')
+        print('writing data...')
         with rasterio.open(outf, "w", **profile) as dst:
             for i in range(stack_data.shape[0]):
                 dst.write(stack_data[i], i+1)
                 dst.set_band_description(i+1, band_list[i])
         print('done')
 
-    def Concat_30m(self):
-        outdir = join(self.data_dir,'tif')
-        T.mkdir(outdir,force=True)
-        band_list = global_band_list
+
+    def build_pyramid(self):
         import HLS
-        import additional_index
-        HLS_fpath = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7.tif')
-        DEM_fpath = join(additional_index.DEM_30m().data_dir,'merge/DEM_30m_reproj6933_crop.tif')
-        ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'ndvi_30m.tif')
-        mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'mndwi_30m.tif')
-        nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'nbr_30m.tif')
-        ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,'ndwi_30m.tif')
-
-        HLS_read = rasterio.open(HLS_fpath)
-        DEM_read = rasterio.open(DEM_fpath)
-        ndvi_read = rasterio.open(ndvi_fpath)
-        mndwi_read = rasterio.open(mndwi_fpath)
-        nbr_read = rasterio.open(nbr_fpath)
-        ndwi_read = rasterio.open(ndwi_fpath)
-
-        HLS_data = HLS_read.read()
-        DEM_data = DEM_read.read()
-        ndvi_data = ndvi_read.read()
-        mndwi_data = mndwi_read.read()
-        nbr_data = nbr_read.read()
-        ndwi_data = ndwi_read.read()
-        stack_data = np.concatenate((HLS_data, DEM_data, ndvi_data, mndwi_data, nbr_data, ndwi_data), axis=0)
-        profile = HLS_read.profile
-        profile.update(count=stack_data.shape[0])
-        # pprint(profile)
-        # exit()
-        outf = join(outdir,'concat_30m.tif')
-        with rasterio.open(outf, "w", **profile) as dst:
-            for i in range(stack_data.shape[0]):
-                dst.write(stack_data[i], i+1)
-                dst.set_band_description(i+1, band_list[i])
+        fdir = join(self.data_dir, f'{self.resolution}')
+        fpath = join(fdir, f'concat_{self.resolution}.tif')
+        # 'concat_1km.tif'
+        print('building pyramid...')
+        HLS.RasterIO_Func().build_pyramid(fpath,bigtiff='YES')
         print('done')
 
 def main():

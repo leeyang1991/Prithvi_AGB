@@ -34,7 +34,7 @@ class Download:
 
     def __init__(self):
         # self.data_dir = '/data/home/wenzhang/Yang/HLS/'
-        self.data_dir = this_script_root
+        self.data_dir = join(this_script_root,'Download')
         self.get_account_passwd()
         self.geojson_fpath = join(data_root,'global_tiles_HLS','AZ.geojson')
 
@@ -43,8 +43,8 @@ class Download:
     def run(self):
         # self.kml_to_shp()
         # self.gen_urls()
-        self.download()
-        # self.check_download()
+        # self.download()
+        self.check_download()
         # self.move_tile_to_different_folder()
         # self.delete_empty_folders()
         pass
@@ -162,7 +162,7 @@ class Download:
         pass
 
     def download(self):
-        outdir = join(self.data_dir, 'Download')
+        outdir = join(self.data_dir,'tiles')
     #
         selected_bands = [
             'B02',
@@ -250,7 +250,7 @@ class Download:
     def check_download(self):
         tiles = self.get_tiles_from_geojson(self.geojson_fpath)
         print(tiles)
-        fdir = join(self.data_dir,'Download')
+        fdir = join(self.data_dir,'tiles')
         params_list = []
         for i,tile in enumerate(tiles):
             for folder in T.listdir(join(fdir,tile)):
@@ -319,17 +319,18 @@ class Download:
 
 class Preprocess_HLS:
     def __init__(self):
-        self.data_dir = this_script_root
+        self.data_dir = join(this_script_root,'Preprocess')
         self.conf()
+        self.region='AZ'
         pass
 
     def run(self):
         # self.gen_image_shp()
-        # self.quality_control_long_term_mean() # 1.1
+        self.quality_control_long_term_mean() # 1.1
         # self.mosaic_single_tile_and_merge_bands() # 1.2
         # self.re_proj_30m() # 1.3
-        # self.mosaic_AZ() # 1.4
-        self.resample_30m_to_1km() # 1.5
+        # self.mosaic_region() # 1.4
+        # self.resample_30m_to_1km() # 1.5
         # self.mosaic_utah()
         # self.mosaic_nm()
         # self.plot_time_series()
@@ -362,8 +363,8 @@ class Preprocess_HLS:
         pass
 
     def re_proj_30m(self):
-        fdir = join(self.data_dir,'Preprocess/1.2_mosaic_single_tile_and_merge_bands')
-        outdir = join(self.data_dir,'Preprocess/1.3_reproj_30m')
+        fdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
+        outdir = join(self.data_dir,'1.3_reproj_30m')
         T.mkdir(outdir,force=True)
         dst_crs = global_gedi_WKT()
         dst_res = 30
@@ -374,8 +375,8 @@ class Preprocess_HLS:
         MULTIPROCESS(self.kernel_re_proj,params_list).run(process=24)
 
     def resample_30m_to_1km(self):
-        fpath = join(self.data_dir,'Preprocess/1.4_mosaic_AZ','AZ_6_bands.tif')
-        outdir = join(self.data_dir,'Preprocess/1.5_resample_30m_to_1km')
+        fpath = join(self.data_dir,'1.4_mosaic_AZ','AZ_6_bands.tif')
+        outdir = join(self.data_dir,'1.5_resample_30m_to_1km')
         T.mkdir(outdir,force=True)
         outf = join(outdir,'AZ_6_bands_resample_1km.tif')
         dst_crs = global_gedi_WKT()
@@ -392,19 +393,19 @@ class Preprocess_HLS:
 
         pass
 
-    def mosaic_AZ(self):
-        geojson_fpath = join(data_root, 'global_tiles_HLS/AZ', 'AZ.geojson')
+    def mosaic_region(self):
+        geojson_fpath = join(data_root, f'global_tiles_HLS/{self.region}', f'{self.region}.geojson')
         tile_list = Download().get_tiles_from_geojson(geojson_fpath)
         # print(tile_list)
         # exit()
-        fdir = join(self.data_dir,'Preprocess/1.3_reproj_30m')
-        outdir = join(self.data_dir,'Preprocess/1.4_mosaic_AZ')
+        fdir = join(self.data_dir,'1.3_reproj_30m')
+        outdir = join(self.data_dir,'1.4_mosaic')
         T.mkdir(outdir,force=True)
-        outf = join(outdir,'AZ_6_bands.tif')
+        outf = join(outdir,f'{self.region}_6_bands.tif')
         flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
-        print('mosaic AZ')
+        print(f'mosaic {self.region}')
         RasterIO_Func().mosaic_tifs(flist,outf,bigtiff='YES')
-        print('mosaic AZ done')
+        print(f'mosaic {self.region} done')
         print('building pyramid')
         RasterIO_Func().build_pyramid(outf)
         print('building pyramid done')
@@ -450,7 +451,7 @@ class Preprocess_HLS:
         # tile_list = Download().get_tiles_from_geojson(geojson_fpath)
         # print(tile_list)
         # exit()
-        outdir = join(self.data_dir,'Preprocess/1.1_quality_control_long_term_mean')
+        outdir = join(self.data_dir,'1.1_quality_control_long_term_mean')
         # print(isdir(outdir))
         # exit()
         T.mkdir(outdir,force=True)
@@ -544,8 +545,8 @@ class Preprocess_HLS:
             return False
 
     def mosaic_single_tile_and_merge_bands(self):
-        fdir = join(self.data_dir,'Preprocess/1.1_quality_control_long_term_mean')
-        outdir = join(self.data_dir,'Preprocess/1.2_mosaic_single_tile_and_merge_bands')
+        fdir = join(self.data_dir,'1.1_quality_control_long_term_mean')
+        outdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
         # tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
         T.mkdir(outdir,force=True)
         # total_flag = len(tiles_list)
@@ -1342,15 +1343,20 @@ class RasterIO_Func:
             raise FileNotFoundError(f"File not found: {tif_path}")
         if bigtiff == 'YES':
             with rasterio.open(tif_path) as src:
+                band_descriptions = src.descriptions
                 profile = src.profile
-                data = src.read()
-                profile.update(
-                    tiled=True,
-                    compress=compress,
-                    bigtiff=bigtiff,
-                )
-            with rasterio.open(tif_path, "w", **profile) as dst:
-                dst.write(data)
+                is_bigtiff = profile.get("bigtiff") == "YES"
+                if not is_bigtiff:
+                    data = src.read()
+                    profile.update(
+                        tiled=True,
+                        compress=compress,
+                        bigtiff=bigtiff,
+                    )
+                    with rasterio.open(tif_path, "w", **profile) as dst:
+                        dst.write(data)
+                        for i in range(data.shape[0]):
+                            dst.set_band_description(i + 1, band_descriptions[i])
 
         with rasterio.open(tif_path, 'r+') as ds:
             resampling_method = getattr(Resampling, resampling)

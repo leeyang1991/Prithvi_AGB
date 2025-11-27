@@ -16,29 +16,31 @@ this_script_root = join(data_root,'additional_index')
 class HLS_Vegetation_Index:
     def __init__(self):
         # if
+        region='AZ'
         # self.resolution = '1km'
         self.resolution = '30m'
         self.data_dir = join(this_script_root,'HLS_Vegetation_Index')
+        if self.resolution == '1km':
+            self.HLS_fpath = join(data_root,f'HLS/Preprocess/1.5_resample_30m_to_1km/{region}_6_bands_resample_1km.tif')
+            self.outdir = join(self.data_dir, f'1km/{region}')
+        elif self.resolution == '30m':
+            self.HLS_fpath = join(data_root,f'HLS/Preprocess/1.4_mosaic/{region}_6_bands.tif')
+            self.outdir = join(self.data_dir, f'30m/{region}')
+        else:
+            raise
+        T.mkdir(self.outdir, force=True)
         pass
 
     def run(self):
-        # self.cal_ndvi()
-        # self.cal_NDWI()
+        self.cal_ndvi()
+        self.cal_NDWI()
         self.cal_NBR()
         pass
 
     def cal_ndvi(self):
-        T.mkdir(self.data_dir,force=True)
-        import HLS
-        fdir = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands')
-        if self.resolution == '1km':
-            fpath = join(fdir,'B2-B7_1km.tif')
-            outf = join(self.data_dir,'ndvi_1km.tif')
-        elif self.resolution == '30m':
-            fpath = join(fdir,'B2-B7.tif')
-            outf = join(self.data_dir,'ndvi_30m.tif')
-        else:
-            raise
+
+        fpath = self.HLS_fpath
+        outf = join(self.outdir,'ndvi.tif')
         with rasterio.open(fpath) as src:
             profile = src.profile
             profile['count'] = 1
@@ -47,31 +49,17 @@ class HLS_Vegetation_Index:
             red_band = data[2]
             nir_band = data[3]
             ndvi = (nir_band - red_band) / (nir_band + red_band)
-            # print(np.shape(ndvi))
-            # ndvi[ndvi<=0] = np.nan
-            # ndvi[ndvi>1] = np.nan
             ndvi = np.array([ndvi])
-            # exit()
+            profile.update(dtype=np.float32)
             with rasterio.open(outf, "w", **profile) as dst:
                 dst.write(ndvi)
         print('done')
 
     def cal_NDWI(self):
-        T.mkdir(self.data_dir, force=True)
-        import HLS
-        fdir = join(HLS.Preprocess_HLS().data_dir, 'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands')
 
-        if self.resolution == '1km':
-            fpath = join(fdir,'B2-B7_1km.tif')
-            outf_ndwi = join(self.data_dir, 'ndwi_1km.tif')
-            outf_mndwi = join(self.data_dir, 'mndwi_1km.tif')
-        elif self.resolution == '30m':
-            fpath = join(fdir,'B2-B7.tif')
-            outf_ndwi = join(self.data_dir, 'ndwi_30m.tif')
-            outf_mndwi = join(self.data_dir, 'mndwi_30m.tif')
-        else:
-            raise
-
+        fpath = self.HLS_fpath
+        outf_ndwi = join(self.outdir, 'ndwi.tif')
+        outf_mndwi = join(self.outdir, 'mndwi.tif')
         with rasterio.open(fpath) as src:
             profile = src.profile
             profile['count'] = 1
@@ -82,15 +70,10 @@ class HLS_Vegetation_Index:
             nir_band = data[3]
             ndwi = (green_band - nir_band) / (green_band + nir_band)
             MNDWI = (green_band - swir1_band) / (green_band + swir1_band)
-            # print(np.shape(ndvi))
-            # ndwi[ndwi < -1] = np.nan
-            # ndwi[ndwi > 1] = np.nan
             ndwi = np.array([ndwi])
 
-            # MNDWI[MNDWI < -1] = np.nan
-            # MNDWI[MNDWI > 1] = np.nan
             MNDWI = np.array([MNDWI])
-
+            profile.update(dtype=np.float32)
             with rasterio.open(outf_ndwi, "w", **profile) as dst:
                 dst.write(ndwi)
             with rasterio.open(outf_mndwi, "w", **profile) as dst:
@@ -99,18 +82,8 @@ class HLS_Vegetation_Index:
         pass
 
     def cal_NBR(self):
-        T.mkdir(self.data_dir, force=True)
-        import HLS
-        fdir = join(HLS.Preprocess_HLS().data_dir, 'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands')
-
-        if self.resolution == '1km':
-            fpath = join(fdir,'B2-B7_1km.tif')
-            outf_nbr = join(self.data_dir, 'nbr_1km.tif')
-        elif self.resolution == '30m':
-            fpath = join(fdir,'B2-B7.tif')
-            outf_nbr = join(self.data_dir, 'nbr_30m.tif')
-        else:
-            raise
+        fpath = self.HLS_fpath
+        outf_nbr = join(self.outdir, 'nbr.tif')
 
         with rasterio.open(fpath) as src:
             profile = src.profile
@@ -122,21 +95,17 @@ class HLS_Vegetation_Index:
             swir2_band = data[5]
             nir_band = data[3]
             nbr = (nir_band - swir2_band) / (nir_band + swir2_band)
-            # print(np.shape(ndvi))
-            # nbr[nbr < -1] = np.nan
-            # nbr[nbr > 1] = np.nan
             nbr = np.array([nbr])
-
+            profile.update(dtype=np.float32)
             with rasterio.open(outf_nbr, "w", **profile) as dst:
                 dst.write(nbr)
         print('done')
-        pass
 
 
 class DEM_1km:
 
     def __init__(self):
-        self.data_dir = join(this_script_root,'DEM')
+        self.data_dir = join(this_script_root,'DEM_1km')
 
     def run(self):
         # self.download_images()
@@ -147,7 +116,7 @@ class DEM_1km:
         pass
 
     def download_images(self):
-        outdir = join(self.data_dir,'zips')
+        outdir = join(self.data_dir,'global/zips')
         T.mkdir(outdir,force=True)
         ee.Initialize(project='lyfq-263413')
 
@@ -208,8 +177,8 @@ class DEM_1km:
             f.write(body)
 
     def unzip(self):
-        fdir = join(self.data_dir,r'zips')
-        outdir = join(self.data_dir,r'unzip')
+        fdir = join(self.data_dir,r'global/zips')
+        outdir = join(self.data_dir,r'global/unzip')
         T.mk_dir(outdir,force=True)
         self._unzip(fdir,outdir)
         pass
@@ -229,8 +198,8 @@ class DEM_1km:
 
     @Decorator.shutup_gdal
     def merge(self):
-        fdir = join(self.data_dir,r'unzip')
-        outdir = join(self.data_dir,r'merge')
+        fdir = join(self.data_dir,r'global/unzip')
+        outdir = join(self.data_dir,r'global/merge')
         T.mk_dir(outdir,force=True)
         fpath_list = []
 
@@ -250,8 +219,8 @@ class DEM_1km:
 
     @Decorator.shutup_gdal
     def reproj(self):
-        fpath = join(self.data_dir,'merge/DEM_1km.tif')
-        outpath = join(self.data_dir,'merge/DEM_1km_reproj6933.tif')
+        fpath = join(self.data_dir,'global/merge/DEM_1km.tif')
+        outpath = join(self.data_dir,'global/merge/DEM_1km_reproj6933.tif')
         dstSRS = global_gedi_WKT()
         srcSRS = global_wkt_84()
         ToRaster().resample_reproj(fpath,outpath,global_res_gedi,srcSRS=srcSRS, dstSRS=dstSRS)
@@ -261,9 +230,10 @@ class DEM_1km:
     def crop(self):
         import HLS
         import GEDI
-        fpath = join(self.data_dir,'merge/DEM_1km_reproj6933.tif')
-        outpath = join(self.data_dir,'merge/DEM_1km_reproj6933_crop.tif')
-        template_fpath = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
+        fpath = join(self.data_dir,'global/merge/DEM_1km_reproj6933.tif')
+        outdir = join(self.data_dir,'AZ')
+        outpath = join(outdir,f'DEM_1km_AZ.tif')
+        template_fpath = join(HLS.Preprocess_HLS().data_dir,'Preprocess/1.5_resample_30m_to_1km','AZ_6_bands_resample_1km.tif')
 
         array, originX, originY, pixelWidth, pixelHeight, projection_wkt = GEDI.Preprocess_GEDI().raster2array(template_fpath)
         left = originX
@@ -276,10 +246,12 @@ class DEM_1km:
 
 class DEM_30m:
 
-    def __init__(self):
-        self.data_dir = join(this_script_root,'DEM_30m')
+    def __init__(self,region='AZ'):
+        self.region = region
+        self.data_dir = join(this_script_root,f'DEM_30m/{region}')
 
     def run(self):
+        # self.read_geojson()
         # self.download_images()
         # self.unzip()
         # self.merge()
@@ -287,17 +259,29 @@ class DEM_30m:
         self.crop()
         pass
 
+
+    def read_geojson(self):
+        fpath = join(data_root,f'global_tiles_HLS/{self.region}/{self.region}.geojson')
+        print(isfile(fpath))
+        field = gp.read_file(fpath)
+        bbox = tuple(list(field.total_bounds))
+        lon_start = bbox[0]
+        lat_start = bbox[3]
+        lon_end = bbox[2]
+        lat_end = bbox[1]
+        return [lon_start, lat_start, lon_end, lat_end]
+
     def download_images(self):
         outdir = join(self.data_dir,'zips')
         T.mkdir(outdir,force=True)
         ee.Initialize(project='lyfq-263413')
-
+        lon_start, lat_start, lon_end, lat_end = self.read_geojson()
         resolution = global_res_hls
         band_name = 'elevation'
         product_name = 'USGS/SRTMGL1_003'
         Image_band = ee.Image(product_name)
         # region_list = self.rectangle(rect=[-180, 90, 180, -90],block_res=15)
-        region_list = self.rectangle(rect=[-115, 39, -110, 36],block_res=1)
+        region_list = self.rectangle(rect=[lon_start, lat_start, lon_end, lat_end],block_res=1)
         flag = 1
         for region in tqdm(region_list):
             flag += 1
@@ -405,7 +389,7 @@ class DEM_30m:
         import GEDI
         fpath = join(self.data_dir,'merge/DEM_30m_reproj6933.tif')
         outpath = join(self.data_dir,'merge/DEM_30m_reproj6933_crop.tif')
-        template_fpath = join(HLS.Preprocess_HLS().data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7.tif')
+        template_fpath = join(HLS.Preprocess_HLS().data_dir,f'Preprocess/1.4_mosaic/{self.region}_6_bands.tif')
 
         array, originX, originY, pixelWidth, pixelHeight, projection_wkt = GEDI.Preprocess_GEDI().raster2array(template_fpath)
         left = originX
