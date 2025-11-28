@@ -8,17 +8,17 @@ class GenPatch:
     def __init__(self):
         self.data_dir = join(this_script_root,'Gen_patch')
         self.region = 'AZ'
-        # self.resolution = '30m'
-        self.resolution = '1km'
-        self.PATCH_SIZE_1km = 64
-        self.STRIDE_1km = 32
-        self.PATCH_SIZE_30m = 224
-        self.STRIDE_30m = 112
+        self.resolution = '30m'
+        # self.resolution = '1km'
+        self.PATCH_SIZE_1km = 224
+        self.STRIDE_1km = 28
+        self.PATCH_SIZE_30m = 448
+        self.STRIDE_30m = 224
         pass
 
     def run(self):
-        # self.generate_patches_HLS()
-        self.generate_patches_GEDI()
+        self.generate_patches_HLS()
+        # self.generate_patches_GEDI()
         # self.split_dataset() # deprecated, npy and json are not used
         # self.test_patch()
         pass
@@ -58,30 +58,35 @@ class GenPatch:
                 for col in range(0, w - PATCH_SIZE, STRIDE):
                     total_count += 1
             print('total_count',total_count)
-            count = 0
-            for row in tqdm(range(0, h - PATCH_SIZE, STRIDE), desc="Sliding rows"):
-            # for row in tqdm(range(0, 1), desc="Sliding rows"):
-                for col in range(0, w - PATCH_SIZE, STRIDE):
-                    # --- 读取HLS patch ---
-                    hls_patch = src_hls.read(
-                        window=((row, row + PATCH_SIZE), (col, col + PATCH_SIZE))
-                    ).astype(np.float32)
-                    # 检查是否全NaN
-                    # if np.isnan(hls_patch).all():
-                    #     continue
-                    for band in hls_patch:
-                        band[band<-9999] = np.nan
-
-                    digit_str = self.get_digit_str(total_count,count)
-                    patch_name = f"patch_{digit_str}"
-                    patch_fpath = join(outdir_hls,patch_name+'.tif')
-                    # x_min_all, xres, 0, y_max_all, 0, yres
-                    x_min_i = x_min + col * xres
-                    y_max_i = y_max + row * yres
-                    self.patch_to_tif(patch_fpath, hls_patch, PATCH_SIZE, x_min_i, xres, y_max_i, yres,dstSRS)
-                    count += 1
-
+        params_list = []
+        count = 0
+        for row in tqdm(range(0, h - PATCH_SIZE, STRIDE), desc="Sliding rows"):
+        # for row in tqdm(range(0, 1), desc="Sliding rows"):
+            for col in range(0, w - PATCH_SIZE, STRIDE):
+                digit_str = self.get_digit_str(total_count, count)
+                patch_name = f"patch_{digit_str}"
+                patch_fpath = join(outdir_hls, patch_name + '.tif')
+                count += 1
+                params = [hls_path,row,col,x_min,xres,y_max,row,yres,patch_fpath,PATCH_SIZE,dstSRS]
+                params_list.append(params)
+                # self.kernrl_generate_patches_HLS(params)
         print(f"Total patches saved: {count}")
+        MULTIPROCESS(self.kernrl_generate_patches_HLS,params_list).run(process=10,process_or_thread='p')
+
+    def kernrl_generate_patches_HLS(self,params):
+        hls_path,row,col,x_min,xres,y_max,row,yres,patch_fpath,PATCH_SIZE,dstSRS = params
+        with rasterio.open(hls_path) as src_hls:
+            hls_patch = src_hls.read(
+                window=((row, row + PATCH_SIZE), (col, col + PATCH_SIZE))
+            ).astype(np.float32)
+            for band in hls_patch:
+                band[band < -9999] = np.nan
+            # x_min_all, xres, 0, y_max_all, 0, yres
+            x_min_i = x_min + col * xres
+            y_max_i = y_max + row * yres
+            self.patch_to_tif(patch_fpath, hls_patch, PATCH_SIZE, x_min_i, xres, y_max_i, yres, dstSRS)
+
+        pass
 
 
     def patch_to_tif(self,patch_fpath, hls_patch,PATCH_SIZE,x_min, xres, y_max, yres,dstSRS):
@@ -215,13 +220,12 @@ class Split_Patch:
     def __init__(self):
         self.data_dir = join(this_script_root,'Split_patch')
         self.region = 'AZ'
-        # self.resolution = '30m'
         self.resolution = '1km'
         pass
 
     def run(self):
-        # self.HLS()
-        self.copy_gedi()
+        self.HLS()
+        self.GEDI()
         pass
 
     def gen_random_path_list(self):
@@ -265,7 +269,7 @@ class Split_Patch:
             shutil.copy(src_fpath,dst_fpath)
         pass
 
-    def copy_gedi(self):
+    def GEDI(self):
         train_flist, val_flist, test_flist = self.gen_random_path_list()
 
         patch_fdir = join(GenPatch().data_dir, 'GEDI', self.region, self.resolution)
@@ -294,8 +298,8 @@ class Split_Patch:
         pass
 
 def main():
-    # GenPatch().run()
-    Split_Patch().run()
+    GenPatch().run()
+    # Split_Patch().run()
     pass
 
 if __name__ == '__main__':

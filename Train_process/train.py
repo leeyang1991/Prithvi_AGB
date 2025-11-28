@@ -1,12 +1,11 @@
 from __global__ import *
 import os
-print(os.getcwd())
+# print(os.getcwd())
 # exit()
 import sys
 from lytools import *
 import numpy as np
 import torch
-import gdown
 import rasterio
 import terratorch
 import albumentations
@@ -28,57 +27,59 @@ from terratorch.registry import TERRATORCH_BACKBONE_REGISTRY
 warnings.filterwarnings('ignore')
 
 T = Tools()
-
+this_script_root = join(this_root,'train')
+study_region = 'AZ'
 
 def init_datamodule_train():
     dataset_path = Path(join(data_root,'Patch','Split_patch'))
-    print(dataset_path)
-    means = [
-        547.36707,
-        898.5121,
-        1020.9082,
-        2665.5352,
-        2340.584,
-        1610.1407,
+    # print(dataset_path)
+    # exit()
+    mean_list = [
+        825.24659149375,
+        1231.3631961714,
+        1650.8159245841,
+        2083.3935002574,
+        2436.1648248585,
+        2382.7427756817,
 
-        15000000,
-        -1000,
-        -1000,
-        -1000,
-        -1000,
+        1157.8291703998,
+        0.12216294396684,
+        -0.30665385143926,
+        -0.063655500216475,
+        -0.24058237596646,
     ]
-    means = np.array(means) / 10000.
-    means_list = means.tolist()
+    # means = np.array(means) / 10000.
+    # means_list = means.tolist()
 
-    stds = [
-        411.4701,
-        558.54065,
-        815.94025,
-        812.4403,
-        1113.7145,
-        1067.641,
+    std_list = [
+        342.58167149983,
+        477.84401449323,
+        690.74405876813,
+        675.46135607273,
+        718.85184127768,
+        715.14464568787,
 
-        2000000,
-        -100,
-        -100,
-        -100,
-        -100,
+        690.89240572151,
+        0.1549335487372,
+        0.14398646446124,
+        0.083608689893597,
+        0.1137088480004,
     ]
-    stds = np.array(stds) / 10000.
-    stds_list = stds.tolist()
+    # stds = np.array(stds) / 10000.
+    # stds_list = stds.tolist()
 
     datamodule = terratorch.datamodules.GenericNonGeoPixelwiseRegressionDataModule(
         batch_size=20,
-        num_workers=8,
+        num_workers=20,
         # num_classes=6,
         check_stackability=False,
         # Define dataset paths
-        train_data_root=dataset_path / 'concat_1km/train/',
-        train_label_data_root=dataset_path / 'GEDI/train/',
-        val_data_root=dataset_path / 'concat_1km/val/',
-        val_label_data_root=dataset_path / 'GEDI/val/',
-        test_data_root=dataset_path / 'concat_1km/test',
-        test_label_data_root=dataset_path / 'GEDI/test',
+        train_data_root=dataset_path / f'HLS/{study_region}/1km/train/',
+        train_label_data_root=dataset_path / f'GEDI/{study_region}/1km/train/',
+        val_data_root=dataset_path / f'HLS/{study_region}/1km/val/',
+        val_label_data_root=dataset_path / f'GEDI/{study_region}/1km/val/',
+        test_data_root=dataset_path / f'HLS/{study_region}/1km/test/',
+        test_label_data_root=dataset_path / f'GEDI/{study_region}/1km/test/',
 
         img_grep='*.tif',
         label_grep='*.tif',
@@ -91,8 +92,8 @@ def init_datamodule_train():
         test_transform=None,
 
         # Define standardization values
-        means=means_list,
-        stds=stds_list,
+        means=mean_list,
+        stds=std_list,
         dataset_bands=global_band_list,
         output_bands=global_band_list,
         rgb_indices=[2, 1, 0],
@@ -102,54 +103,55 @@ def init_datamodule_train():
     return datamodule
 
 def init_datamodule_predict_30m():
-    dataset_path = Path(join(data_root,'Patch','patches'))
-    print(dataset_path)
-    means = [
-        547.36707,
-        898.5121,
-        1020.9082,
-        2665.5352,
-        2340.584,
-        1610.1407,
+    dataset_path = Path(join(data_root,'Patch','Gen_patch/HLS',study_region))
+    # print(dataset_path)
+    # exit()
+    mean_list = [
+        825.24659149375,
+        1231.3631961714,
+        1650.8159245841,
+        2083.3935002574,
+        2436.1648248585,
+        2382.7427756817,
 
-        15000000,
-        -1000,
-        -1000,
-        -1000,
-        -1000,
+        1157.8291703998,
+        0.12216294396684,
+        -0.30665385143926,
+        -0.063655500216475,
+        -0.24058237596646,
     ]
-    means = np.array(means) / 10000.
-    means_list = means.tolist()
+    # means = np.array(means) / 10000.
+    # means_list = means.tolist()
 
-    stds = [
-        411.4701,
-        558.54065,
-        815.94025,
-        812.4403,
-        1113.7145,
-        1067.641,
+    std_list = [
+        342.58167149983,
+        477.84401449323,
+        690.74405876813,
+        675.46135607273,
+        718.85184127768,
+        715.14464568787,
 
-        2000000,
-        -100,
-        -100,
-        -100,
-        -100,
+        690.89240572151,
+        0.1549335487372,
+        0.14398646446124,
+        0.083608689893597,
+        0.1137088480004,
     ]
-    stds = np.array(stds) / 10000.
-    stds_list = stds.tolist()
+    # stds = np.array(stds) / 10000.
+    # stds_list = stds.tolist()
 
     datamodule = terratorch.datamodules.GenericNonGeoPixelwiseRegressionDataModule(
-        batch_size=50,
+        batch_size=10,
         num_workers=8,
         # num_classes=6,
         check_stackability=False,
         # Define dataset paths
-        train_data_root=dataset_path / 'concat_30m/',
-        train_label_data_root=dataset_path / 'concat_30m/',
-        val_data_root=dataset_path / 'concat_30m/',
-        val_label_data_root=dataset_path / 'concat_30m/',
-        test_data_root=dataset_path / 'concat_30m/',
-        test_label_data_root=dataset_path / 'concat_30m/',
+        train_data_root=dataset_path / '30m/',
+        train_label_data_root=dataset_path / '30m/',
+        val_data_root=dataset_path / '30m/',
+        val_label_data_root=dataset_path / '30m/',
+        test_data_root=dataset_path / '30m/',
+        test_label_data_root=dataset_path / '30m/',
 
         img_grep='*.tif',
         label_grep='*.tif',
@@ -162,8 +164,8 @@ def init_datamodule_predict_30m():
         test_transform=None,
 
         # Define standardization values
-        means=means_list,
-        stds=stds_list,
+        means=mean_list,
+        stds=std_list,
         dataset_bands=global_band_list,
         output_bands=global_band_list,
         rgb_indices=[2, 1, 0],
@@ -254,7 +256,7 @@ def init_model():
     return model
 
 def init_trainer():
-    trainer_dir = join(this_root,'model','trainer')
+    trainer_dir = join(this_script_root,'trainer',study_region)
     T.mkdir(trainer_dir,force=True)
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         # dirpath="output/agb/checkpoints/",
@@ -283,16 +285,14 @@ def init_trainer():
     return trainer
 
 def train_agb():
+    datamodule = init_datamodule_train()
     trainer = init_trainer()
     model = init_model()
-    datamodule = init_datamodule_train()
-    # exit()
     trainer.fit(model, datamodule=datamodule)
 
     pass
 
-def check_performance():
-    ckpt_path = join(this_root,'model','trainer/checkpoints/best-epoch=99.ckpt')
+def check_performance(ckpt_path):
     trainer = init_trainer()
     model = init_model()
     datamodule = init_datamodule_train()
@@ -301,7 +301,7 @@ def check_performance():
     pass
 
 def predict_agb(ckpt_path):
-    outdir = join(results_root,'agb_pred','patch_30m_11_bands')
+    outdir = join(this_script_root,'agb_pred',study_region,'30m')
     T.mkdir(outdir,force=True)
     model_init = init_model()
     datamodule = init_datamodule_predict_30m()
@@ -446,14 +446,17 @@ def mosaic_spatial_tifs_no_overlap():
 
 @Decorator.shutup_gdal
 def mosaic_spatial_tifs_overlap():
-    patch_size = 224
-    stride = 112
+    # patch_size = 224
+    # stride = 112
+
+    patch_size = 448
+    stride = 224
     nodata_value = global_nodata_value
     dstSRS = global_gedi_WKT()
     # fdir = join(results_root,'agb_pred','patch_30m')
-    fdir = join(results_root,'agb_pred','patch_30m_11_bands')
-    outdir = join(results_root,'agb_pred','mosaic_11_bands')
-    outf = join(outdir,f'agb_30m_11_bands.tif')
+    fdir = join(this_script_root,'agb_pred',study_region,'30m/')
+    outdir = join(this_script_root,'agb_pred',study_region,'mosaic')
+    outf = join(outdir,f'agb_30m.tif')
 
     T.mkdir(outdir)
     fpath_list = []
@@ -468,7 +471,7 @@ def mosaic_spatial_tifs_overlap():
     yres = gt[5]
     tiles_info = []
 
-    for path in fpath_list:
+    for path in tqdm(fpath_list,desc='loading data'):
         ds = gdal.Open(path)
         gt_i = ds.GetGeoTransform()
         x_min = gt_i[0]
@@ -499,7 +502,7 @@ def mosaic_spatial_tifs_overlap():
     weight2d /= weight2d.max()
 
 
-    for path, xmin, xmax, ymin, ymax in tqdm(tiles_info):
+    for path, xmin, xmax, ymin, ymax in tqdm(tiles_info,desc='mosaic'):
         ds = gdal.Open(path)
         data = ds.ReadAsArray().astype(np.float32)
         # data[data<-9999] = 0
@@ -523,6 +526,7 @@ def mosaic_spatial_tifs_overlap():
     # plt.imshow(AGB_map)
     # plt.show()
     # pause()
+    print('writing...')
     driver = gdal.GetDriverByName('GTiff')
     cols_new = cols
     out_ds = driver.Create(outf, AGB_map.shape[1], AGB_map.shape[0], 1, gdal.GDT_Float32,
@@ -538,7 +542,7 @@ def mosaic_spatial_tifs_overlap():
     out_band.FlushCache()
 
     out_ds = None
-    pass
+    print('done')
 
 def resample_30_to_1km():
     fpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m.tif')
@@ -620,12 +624,10 @@ def benchmark():
     plt.show()
 
 def main():
-    # best_ckpt_path = '/home/yangli/Remote_SSH_Pyproject/terratorch_learn/Train_process/output/agb/checkpoints/best-epoch=86.ckpt'
-    # print(isfile(best_ckpt_path))
     # train_agb()
-    # check_performance()
-    # best_ckpt_path = join(this_root,'model','trainer/checkpoints/best-epoch=99.ckpt')
-    # predict_agb(best_ckpt_path)
+    ckpt_path = join(this_script_root,f'trainer/{study_region}/checkpoints/best-epoch=96.ckpt')
+    # check_performance(ckpt_path)
+    # predict_agb(ckpt_path)
     mosaic_spatial_tifs_overlap()
     # resample_30_to_1km()
     # benchmark()
