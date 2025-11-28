@@ -899,6 +899,24 @@ class Download_From_GEE_1km:
         pass
 
     def run(self):
+        # self.mv_files_to_new_folder()
+        self.run_download()
+        pass
+
+    def mv_files_to_new_folder(self):
+        fdir = join(self.data_dir,'zips',self.product)
+        outdir = join(self.data_dir, 'zips_new', self.product)
+        for f in tqdm(T.listdir(fdir)):
+            tile = f.split('_')[0]
+            outdir_i = join(outdir,tile)
+            T.mkdir(outdir_i,force=True)
+            fpath = join(fdir,f)
+            outf = join(outdir_i,f)
+            shutil.move(fpath,outf)
+            # sleep(1)
+        pass
+
+    def run_download(self):
         date_range_list = self.gen_date_list()
         # pprint(date_range_list)
         # exit()
@@ -911,17 +929,19 @@ class Download_From_GEE_1km:
             param = outdir,startDate,endDate
             param_list.append(param)
             # self.download_images(param)
-        MULTIPROCESS(self.download_images,param_list).run(process=20,process_or_thread='t')
+        MULTIPROCESS(self.download_images,param_list).run(process=20,process_or_thread='p')
 
     def download_images(self,param):
         outdir,startDate,endDate = param
+        print('download',startDate.strftime('%Y-%m-%d'))
+        # exit()
         # print(site)
         res = global_res_gedi
-        outdir_i = join(outdir)
-        T.mk_dir(outdir_i)
+
 
         Collection = ee.ImageCollection(self.collection)
         Collection = Collection.filterDate(startDate, endDate)
+        # print(Collection)
 
         info_dict = Collection.getInfo()
         # pprint(info_dict)
@@ -934,9 +954,20 @@ class Download_From_GEE_1km:
             # pprint.pprint(dict_i['id'])
             # exit()
             outf_name = dict_i['id'].split('/')[-1] + '.zip'
+            tile = outf_name.split('_')[0]
+            outdir_i = join(outdir,tile)
+            try:
+                T.mk_dir(outdir_i,force=True)
+            except:
+                pass
             out_path = join(outdir_i, outf_name)
             if isfile(out_path):
-                continue
+                try:
+                    zip_ref = zipfile.ZipFile(out_path, 'r')
+                    continue
+                except Exception as e:
+                    print(e)
+                    print(out_path)
             Image = ee.Image(dict_i['id'])
             # Image_product = Image.select('total_precipitation')
             Image_product = Image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'Fmask'])
@@ -955,10 +986,12 @@ class Download_From_GEE_1km:
 
             try:
                 self.download_i(url, out_path)
+                # print(out_path)
             except:
                 print('download error', out_path)
                 continue
-        pass
+        print('Done! --- \t',startDate.strftime('%Y-%m-%d'))
+
     def download_i(self,url,outf):
         # try:
         http = urllib3.PoolManager()
@@ -978,7 +1011,10 @@ class Download_From_GEE_1km:
         for i in np.arange(0,days_count+2,1):
             # print(i)
             date = base_date + datetime.timedelta(days=int(i))
-            date_list.append(date.strftime('%Y-%m-%d'))
+            # print(date)
+            # exit()
+            # date_list.append(date.strftime('%Y-%m-%d'))
+            date_list.append(date)
         # pprint(date_list)
         # exit()
         # every two days
@@ -988,8 +1024,16 @@ class Download_From_GEE_1km:
         #         date_range_list.append([date_list[i],date_list[i+1]])
         # every one days
         date_range_list = []
-        for i in range(len(date_list) - 1):
-            date_range_list.append([date_list[i], date_list[i]])
+        # for i in range(len(date_list) - 1):
+        for date in date_list:
+            year = date.year
+            month = date.month
+            day = date.day
+            init_date = datetime.datetime(year, month, day,0,0,0)
+            end_date = datetime.datetime(year, month, day, 23, 59, 59)
+            date_range_list.append([init_date, end_date])
+        # print(date_range_list)
+        # exit()
         return date_range_list
 
 class Tif_loader:
@@ -1368,8 +1412,8 @@ class RasterIO_Func:
 
 def main():
     # Download().run()
-    Preprocess_HLS().run()
-    # Download_From_GEE_1km().run()
+    # Preprocess_HLS().run()
+    Download_From_GEE_1km().run()
     pass
 
 if __name__ == '__main__':
