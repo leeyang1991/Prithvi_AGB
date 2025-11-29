@@ -12,11 +12,12 @@ class Concat_Data:
         self.resolution = '30m'
         # self.resolution = '1km'
 
-        self.region = 'AZ'
+        # self.region = 'AZ'
+        self.region = 'NM'
         pass
 
     def run(self):
-        self.Concat()
+        # self.Concat()
         self.build_pyramid()
         pass
 
@@ -28,8 +29,8 @@ class Concat_Data:
         import HLS
         import additional_index
         if self.resolution == '30m':
-            HLS_fpath = join(HLS.Preprocess_HLS().data_dir,f'Preprocess/1.4_mosaic/{self.region}_6_bands.tif')
-            DEM_fpath = join(additional_index.DEM_30m(region=self.region).data_dir,'merge/DEM_30m_reproj6933_crop.tif')
+            HLS_fpath = join(HLS.Preprocess_HLS().data_dir,f'1.4_mosaic/{self.region}_6_bands.tif')
+            DEM_fpath = join(additional_index.DEM_30m(self.region).data_dir,f'merge/DEM_30m_reproj6933_crop.tif')
             ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'ndvi.tif')
             mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'mndwi.tif')
             nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'nbr.tif')
@@ -37,7 +38,7 @@ class Concat_Data:
             outf = join(outdir,f'{self.region}_concat_30m.tif')
 
         elif self.resolution == '1km':
-            HLS_fpath = join(HLS.Preprocess_HLS().data_dir, f'Preprocess/1.5_resample_30m_to_1km/{self.region}_6_bands_resample_1km.tif')
+            HLS_fpath = join(HLS.Preprocess_HLS().data_dir, f'1.5_resample_30m_to_1km/{self.region}_6_bands_resample_1km.tif')
             DEM_fpath = join(additional_index.DEM_1km().data_dir, f'{self.region}/DEM_1km_{self.region}.tif')
             ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
                               'ndvi.tif')
@@ -72,7 +73,7 @@ class Concat_Data:
         # exit()
         print('writing data...')
         with rasterio.open(outf, "w", **profile) as dst:
-            for i in range(stack_data.shape[0]):
+            for i in tqdm(range(stack_data.shape[0]),desc='writing bands'):
                 dst.write(stack_data[i], i+1)
                 dst.set_band_description(i+1, band_list[i])
         print('done')
@@ -81,7 +82,7 @@ class Concat_Data:
     def build_pyramid(self):
         import HLS
         fdir = join(self.data_dir, f'{self.resolution}')
-        fpath = join(fdir, f'concat_{self.resolution}.tif')
+        fpath = join(fdir, f'{self.region}_concat_{self.resolution}.tif')
         # 'concat_1km.tif'
         print('building pyramid...')
         HLS.RasterIO_Func().build_pyramid(fpath,bigtiff='YES')

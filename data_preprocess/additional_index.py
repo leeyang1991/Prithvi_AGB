@@ -16,7 +16,8 @@ this_script_root = join(data_root,'additional_index')
 class HLS_Vegetation_Index:
     def __init__(self):
         # if
-        region='AZ'
+        # region='AZ'
+        region='NM'
         # self.resolution = '1km'
         self.resolution = '30m'
         self.data_dir = join(this_script_root,'HLS_Vegetation_Index')
@@ -233,7 +234,7 @@ class DEM_1km:
         fpath = join(self.data_dir,'global/merge/DEM_1km_reproj6933.tif')
         outdir = join(self.data_dir,'AZ')
         outpath = join(outdir,f'DEM_1km_AZ.tif')
-        template_fpath = join(HLS.Preprocess_HLS().data_dir,'Preprocess/1.5_resample_30m_to_1km','AZ_6_bands_resample_1km.tif')
+        template_fpath = join(HLS.Preprocess_HLS().data_dir,'1.5_resample_30m_to_1km','AZ_6_bands_resample_1km.tif')
 
         array, originX, originY, pixelWidth, pixelHeight, projection_wkt = GEDI.Preprocess_GEDI().raster2array(template_fpath)
         left = originX
@@ -246,9 +247,10 @@ class DEM_1km:
 
 class DEM_30m:
 
-    def __init__(self,region='AZ'):
+    def __init__(self,region='NM'):
+        # self.region = 'AZ'
         self.region = region
-        self.data_dir = join(this_script_root,f'DEM_30m/{region}')
+        self.data_dir = join(this_script_root,f'DEM_30m/{self.region}')
 
     def run(self):
         # self.read_geojson()
@@ -282,7 +284,7 @@ class DEM_30m:
         Image_band = ee.Image(product_name)
         # region_list = self.rectangle(rect=[-180, 90, 180, -90],block_res=15)
         region_list = self.rectangle(rect=[lon_start, lat_start, lon_end, lat_end],block_res=1)
-        flag = 1
+        flag = 0
         for region in tqdm(region_list):
             flag += 1
             outf_name = join(outdir, f'{flag}.zip')
@@ -389,7 +391,9 @@ class DEM_30m:
         import GEDI
         fpath = join(self.data_dir,'merge/DEM_30m_reproj6933.tif')
         outpath = join(self.data_dir,'merge/DEM_30m_reproj6933_crop.tif')
-        template_fpath = join(HLS.Preprocess_HLS().data_dir,f'Preprocess/1.4_mosaic/{self.region}_6_bands.tif')
+        template_fpath = join(HLS.Preprocess_HLS().data_dir,f'1.4_mosaic/{self.region}_6_bands.tif')
+        # print(template_fpath)
+        # exit()
 
         array, originX, originY, pixelWidth, pixelHeight, projection_wkt = GEDI.Preprocess_GEDI().raster2array(template_fpath)
         left = originX
@@ -399,11 +403,12 @@ class DEM_30m:
         crop_window = (left, bottom, right, top)
 
         GEDI.Preprocess_GEDI().clip_tif_using_coordinates(fpath,outpath,crop_window,global_gedi_WKT(),global_res_hls)
+        print('crop done')
 
 def main():
-    HLS_Vegetation_Index().run()
+    # HLS_Vegetation_Index().run()
     # DEM_1km().run()
-    # DEM_30m().run()
+    DEM_30m().run()
     pass
 
 if __name__ == '__main__':

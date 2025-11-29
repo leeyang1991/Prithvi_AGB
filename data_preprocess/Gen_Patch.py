@@ -7,7 +7,8 @@ this_script_root = join(data_root,'Patch')
 class GenPatch:
     def __init__(self):
         self.data_dir = join(this_script_root,'Gen_patch')
-        self.region = 'AZ'
+        # self.region = 'AZ'
+        self.region = 'NM'
         self.resolution = '30m'
         # self.resolution = '1km'
         self.PATCH_SIZE_1km = 224

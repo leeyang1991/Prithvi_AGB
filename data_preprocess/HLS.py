@@ -321,21 +321,18 @@ class Preprocess_HLS:
     def __init__(self):
         self.data_dir = join(this_script_root,'Preprocess')
         self.conf()
-        self.region='AZ'
+        # self.region='AZ'
+        self.region='NM'
         pass
 
     def run(self):
         # self.gen_image_shp()
-        self.quality_control_long_term_mean() # 1.1
+        # self.quality_control_long_term_mean() # 1.1
         # self.mosaic_single_tile_and_merge_bands() # 1.2
         # self.re_proj_30m() # 1.3
         # self.mosaic_region() # 1.4
         # self.resample_30m_to_1km() # 1.5
-        # self.mosaic_utah()
-        # self.mosaic_nm()
         # self.plot_time_series()
-        # self.get_tif_template()
-        # self.resample_to_1km()
         # self.padding_224()
 
         pass
@@ -363,6 +360,7 @@ class Preprocess_HLS:
         pass
 
     def re_proj_30m(self):
+        # 1.3
         fdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
         outdir = join(self.data_dir,'1.3_reproj_30m')
         T.mkdir(outdir,force=True)
@@ -375,6 +373,7 @@ class Preprocess_HLS:
         MULTIPROCESS(self.kernel_re_proj,params_list).run(process=24)
 
     def resample_30m_to_1km(self):
+        # 1.5
         fpath = join(self.data_dir,'1.4_mosaic_AZ','AZ_6_bands.tif')
         outdir = join(self.data_dir,'1.5_resample_30m_to_1km')
         T.mkdir(outdir,force=True)
@@ -394,6 +393,7 @@ class Preprocess_HLS:
         pass
 
     def mosaic_region(self):
+        # 1.4
         geojson_fpath = join(data_root, f'global_tiles_HLS/{self.region}', f'{self.region}.geojson')
         tile_list = Download().get_tiles_from_geojson(geojson_fpath)
         # print(tile_list)
@@ -411,26 +411,6 @@ class Preprocess_HLS:
         print('building pyramid done')
         pass
 
-    def mosaic_utah(self):
-        tile_list = ['T12STG', 'T12STH', 'T12SUG', 'T12SUH', 'T12SVG', 'T12SVH']
-        fdir = join(self.data_dir,'mosaic_merge_bands_tifs_reproj')
-        outdir = join(self.data_dir,'mosaic_utah')
-        T.mkdir(outdir,force=True)
-        outf = join(outdir,'mosaic_utah_reproj.tif')
-        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
-        RasterIO_Func().mosaic_tifs(flist,outf)
-        pass
-
-    def mosaic_nm(self):
-        tile_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
-        fdir = join(self.data_dir,'mosaic_merge_bands_tifs_nm_reproj')
-        outdir = join(self.data_dir,'mosaic_nm')
-        T.mkdir(outdir,force=True)
-        outf = join(outdir,'mosaic_nm_reproj.tif')
-        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
-        RasterIO_Func().mosaic_tifs(flist,outf)
-        pass
-
 
     def get_WKT(self,fpath):
         raster = gdal.Open(fpath)
@@ -438,6 +418,7 @@ class Preprocess_HLS:
         return projection_wkt
 
     def quality_control_long_term_mean(self):
+        # 1.1
         # fdir = join(self.data_dir,'Downnload')
         fdir = '/home/yangli/NVME4T/HLS_Download' # Ubuntu
         # fdir = '/Volumes/NVME2T/HLS_Download' # Mac
@@ -545,6 +526,7 @@ class Preprocess_HLS:
             return False
 
     def mosaic_single_tile_and_merge_bands(self):
+        # 1.2
         fdir = join(self.data_dir,'1.1_quality_control_long_term_mean')
         outdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
         # tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
@@ -752,22 +734,6 @@ class Preprocess_HLS:
                 if tile in f:
                     os.remove(join(outdir,f))
 
-    def get_tif_template(self):
-        tile_list = self.tile_list
-        fdir_reproj = join(self.data_dir, 'reproj')
-        tile_template_dict = {}
-        for tile in tile_list:
-            template_tif = ''
-            for folder in T.listdir(fdir_reproj):
-                tile_ = folder.split('.')[2]
-                if tile == tile_:
-                    template_tif = join(fdir_reproj, folder, f'{folder}.B02.tif')
-                    break
-            if len(template_tif) == 0:
-                raise
-            tile_template_dict[tile] = template_tif
-        return tile_template_dict
-
 
     def plot_time_series(self):
         fdir = join(self.data_dir,'reproj_qa_concatenate')
@@ -792,16 +758,6 @@ class Preprocess_HLS:
 
         pass
 
-    def resample_to_1km(self):
-        import GEDI
-        # fpath = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7.tif')
-        fpath = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/mosaic10.tif')
-        # outf = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
-        outf = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/mosaic10_1km.tif')
-        SRS = GEDI.Preprocess_GEDI().get_WKT()
-        res = 1000.89502334966744
-        ToRaster().resample_reproj(fpath,outf,res,SRS,SRS)
-        pass
 
     def padding_224(self):
         fpath = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
@@ -938,58 +894,60 @@ class Download_From_GEE_1km:
         # print(site)
         res = global_res_gedi
 
-
+        blocks = self.rectangle()
         Collection = ee.ImageCollection(self.collection)
-        Collection = Collection.filterDate(startDate, endDate)
-        # print(Collection)
 
-        info_dict = Collection.getInfo()
-        # pprint(info_dict)
-        # print(len(info_dict['features']))
-        # exit()
-        ids = info_dict['features']
-        # for i in tqdm(ids):
-        for i in ids:
-            dict_i = eval(str(i))
-            # pprint.pprint(dict_i['id'])
-            # exit()
-            outf_name = dict_i['id'].split('/')[-1] + '.zip'
-            tile = outf_name.split('_')[0]
-            outdir_i = join(outdir,tile)
-            try:
-                T.mk_dir(outdir_i,force=True)
-            except:
-                pass
-            out_path = join(outdir_i, outf_name)
-            if isfile(out_path):
+        for region in blocks:
+            Collection_i = Collection.filterDate(startDate, endDate).filterBounds(region)
+            # print(Collection)
+
+            info_dict = Collection_i.getInfo()
+            # pprint(info_dict)
+            # print(len(info_dict['features']))
+
+            ids = info_dict['features']
+            # for i in tqdm(ids):
+            for i in ids:
+                dict_i = eval(str(i))
+                # pprint.pprint(dict_i['id'])
+                # exit()
+                outf_name = dict_i['id'].split('/')[-1] + '.zip'
+                tile = outf_name.split('_')[0]
+                outdir_i = join(outdir,tile)
                 try:
-                    zip_ref = zipfile.ZipFile(out_path, 'r')
-                    continue
-                except Exception as e:
-                    print(e)
-                    print(out_path)
-            Image = ee.Image(dict_i['id'])
-            # Image_product = Image.select('total_precipitation')
-            Image_product = Image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'Fmask'])
-            # print(Image_product);exit()
-            # region = [-111, 32.2, -110, 32.6]# left, bottom, right,
-            # region = [-180, -90, 180, 90]  # left, bottom, right,
-            exportOptions = {
-                'scale': res,
-                'maxPixels': 1e13,
-                # 'region': region,
-                # 'fileNamePrefix': 'exampleExport',
-                # 'description': 'imageToAssetExample',
-            }
-            url = Image_product.getDownloadURL(exportOptions)
-            # print(url)
+                    T.mk_dir(outdir_i,force=True)
+                except:
+                    pass
+                out_path = join(outdir_i, outf_name)
+                if isfile(out_path):
+                    try:
+                        zip_ref = zipfile.ZipFile(out_path, 'r')
+                        continue
+                    except Exception as e:
+                        print(e)
+                        print(out_path)
+                Image = ee.Image(dict_i['id'])
+                # Image_product = Image.select('total_precipitation')
+                Image_product = Image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'Fmask'])
+                # print(Image_product);exit()
+                # region = [-111, 32.2, -110, 32.6]# left, bottom, right,
+                # region = [-180, -90, 180, 90]  # left, bottom, right,
+                exportOptions = {
+                    'scale': res,
+                    'maxPixels': 1e13,
+                    # 'region': region,
+                    # 'fileNamePrefix': 'exampleExport',
+                    # 'description': 'imageToAssetExample',
+                }
+                url = Image_product.getDownloadURL(exportOptions)
+                # print(url)
 
-            try:
-                self.download_i(url, out_path)
-                # print(out_path)
-            except:
-                print('download error', out_path)
-                continue
+                try:
+                    self.download_i(url, out_path)
+                    # print(out_path)
+                except:
+                    print('download error', out_path)
+                    continue
         print('Done! --- \t',startDate.strftime('%Y-%m-%d'))
 
     def download_i(self,url,outf):
@@ -999,6 +957,29 @@ class Download_From_GEE_1km:
         body = r.read()
         with open(outf, 'wb') as f:
             f.write(body)
+
+    def rectangle(self,rect=(-180, 90, 180, -90),block_res=90):
+        rect_list = []
+        lon_start = rect[0]
+        lat_start = rect[3]
+        lon_end = rect[2]
+        lat_end = rect[1]
+        for lon in np.arange(lon_start, lon_end, block_res):
+            for lat in np.arange(lat_start, lat_end, block_res):
+                rect_i = [lon, lat, lon + block_res, lat + block_res]
+                # print(rect_i)
+                rect_i_new = [rect_i[0], rect_i[3], rect_i[2], rect_i[1]]
+                rect_i_new = [float(i) for i in rect_i_new]
+                # exit()
+                rect_list.append(rect_i_new)
+        # print(rect_list)
+        # print('len(rect_list)', len(rect_list))
+        rect_list_obj = []
+        for rect_i in rect_list:
+            rect_i_obj = ee.Geometry.Rectangle(rect_i[0], rect_i[1], rect_i[2], rect_i[3])
+            # rect_i_obj = ee.Geometry.Rectangle(rect_i[0], rect_i[1], rect_i[2], rect_i[3])
+            rect_list_obj.append(rect_i_obj)
+        return rect_list_obj
 
     def gen_date_list(self,start_date = '2019-01-01',end_date = '2023-12-31'):
 
@@ -1311,7 +1292,7 @@ class RasterIO_Func:
             with memfile.open(**prof) as dataset:
                 dataset.write(arr)
             datasets.append(memfile.open())
-        print('merging datasets...')
+        print('mosaic datasets...')
         mosaic, mosaic_transform = merge(datasets)
         out_profile = profile_list[0].copy()
         out_profile.update({
@@ -1319,7 +1300,7 @@ class RasterIO_Func:
             "width": mosaic.shape[2],
             "transform": mosaic_transform
         })
-        print('merging done')
+        print('mosaic datasets done')
         return mosaic,out_profile
 
     def mosaic_tifs(self,flist,outf,bigtiff="NO"):

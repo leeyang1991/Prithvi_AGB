@@ -28,7 +28,8 @@ warnings.filterwarnings('ignore')
 
 T = Tools()
 this_script_root = join(this_root,'train')
-study_region = 'AZ'
+# study_region = 'AZ'
+study_region = 'NM'
 
 def init_datamodule_train():
     dataset_path = Path(join(data_root,'Patch','Split_patch'))
@@ -141,8 +142,8 @@ def init_datamodule_predict_30m():
     # stds_list = stds.tolist()
 
     datamodule = terratorch.datamodules.GenericNonGeoPixelwiseRegressionDataModule(
-        batch_size=10,
-        num_workers=8,
+        batch_size=12,
+        num_workers=7,
         # num_classes=6,
         check_stackability=False,
         # Define dataset paths
@@ -323,6 +324,8 @@ def predict_agb(ckpt_path):
         # batch = next(iter(test_loader))
         for batch in tqdm(test_loader):
             batch = datamodule.aug(batch)
+            # print(batch["image"])
+            # exit()
             images = batch["image"].to(model.device)
 
             masks = batch["mask"].numpy()
@@ -333,6 +336,9 @@ def predict_agb(ckpt_path):
             for i in range(len(preds)):
                 preds_image = preds[i].cpu().numpy()
                 patch_filename = filename_list[i]
+                if 'patch_0084' in patch_filename:
+                    print(preds_image)
+                    pause()
                 save_pred_image(preds_image, patch_filename,outdir)
             # exit()
 
@@ -545,8 +551,8 @@ def mosaic_spatial_tifs_overlap():
     print('done')
 
 def resample_30_to_1km():
-    fpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m.tif')
-    outpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m_resample_1km.tif')
+    fpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m.tif')
+    outpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m_resample_1km.tif')
     res = global_res_gedi
     SRS = global_gedi_WKT()
     ToRaster().resample_reproj(fpath, outpath, res, srcSRS=SRS, dstSRS=SRS)
@@ -625,10 +631,10 @@ def benchmark():
 
 def main():
     # train_agb()
-    ckpt_path = join(this_script_root,f'trainer/{study_region}/checkpoints/best-epoch=96.ckpt')
+    ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=96.ckpt')
     # check_performance(ckpt_path)
-    # predict_agb(ckpt_path)
-    mosaic_spatial_tifs_overlap()
+    predict_agb(ckpt_path)
+    # mosaic_spatial_tifs_overlap()
     # resample_30_to_1km()
     # benchmark()
 
