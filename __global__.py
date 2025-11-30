@@ -44,7 +44,8 @@ conf_root = join(this_root, 'conf')
 global_res_gedi = 1000.89502334966744
 global_res_hls = 30
 global_nodata_value = -999999
-global_band_list = ["BLUE", "GREEN", "RED", "NIR_NARROW", "SWIR_1", "SWIR_2", "DEM", "NDVI", "MNDWI", "NBR", "NDWI"]
+global_band_list_11 = ["BLUE", "GREEN", "RED", "NIR_NARROW", "SWIR_1", "SWIR_2", "DEM", "NDVI", "MNDWI", "NBR", "NDWI"]
+global_band_list_8 = ["BLUE", "GREEN", "RED", "NIR_NARROW", "SWIR_1", "SWIR_2", "DEM", "NDVI"]
 
 def global_wkt_84():
     wkt_str = '''GEOGCRS["WGS 84",

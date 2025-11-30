@@ -16,8 +16,8 @@ this_script_root = join(data_root,'additional_index')
 class HLS_Vegetation_Index:
     def __init__(self):
         # if
-        # region='AZ'
-        region='NM'
+        region='AZ'
+        # region='NM'
         # self.resolution = '1km'
         self.resolution = '30m'
         self.data_dir = join(this_script_root,'HLS_Vegetation_Index')
@@ -34,8 +34,8 @@ class HLS_Vegetation_Index:
 
     def run(self):
         self.cal_ndvi()
-        self.cal_NDWI()
-        self.cal_NBR()
+        # self.cal_NDWI()
+        # self.cal_NBR()
         pass
 
     def cal_ndvi(self):
@@ -50,6 +50,10 @@ class HLS_Vegetation_Index:
             red_band = data[2]
             nir_band = data[3]
             ndvi = (nir_band - red_band) / (nir_band + red_band)
+            ndvi[ndvi>1] = 1
+            ndvi[ndvi<0] = 0
+            ndvi[np.isnan(ndvi)] = 0
+            ndvi[np.isinf(ndvi)] = 0
             ndvi = np.array([ndvi])
             profile.update(dtype=np.float32)
             with rasterio.open(outf, "w", **profile) as dst:
@@ -406,9 +410,9 @@ class DEM_30m:
         print('crop done')
 
 def main():
-    # HLS_Vegetation_Index().run()
+    HLS_Vegetation_Index().run()
     # DEM_1km().run()
-    DEM_30m().run()
+    # DEM_30m().run()
     pass
 
 if __name__ == '__main__':

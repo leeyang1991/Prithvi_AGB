@@ -12,29 +12,30 @@ class Concat_Data:
         self.resolution = '30m'
         # self.resolution = '1km'
 
-        # self.region = 'AZ'
-        self.region = 'NM'
+        self.region = 'AZ'
+        # self.region = 'NM'
         pass
 
     def run(self):
-        # self.Concat()
-        self.build_pyramid()
+        self.Concat()
+        # self.build_pyramid()
         pass
 
 
     def Concat(self):
         outdir = join(self.data_dir,f'{self.resolution}')
         T.mkdir(outdir,force=True)
-        band_list = global_band_list
+        # band_list = global_band_list
+        band_list = global_band_list_8
         import HLS
         import additional_index
         if self.resolution == '30m':
             HLS_fpath = join(HLS.Preprocess_HLS().data_dir,f'1.4_mosaic/{self.region}_6_bands.tif')
             DEM_fpath = join(additional_index.DEM_30m(self.region).data_dir,f'merge/DEM_30m_reproj6933_crop.tif')
             ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'ndvi.tif')
-            mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'mndwi.tif')
-            nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'nbr.tif')
-            ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'ndwi.tif')
+            # mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'mndwi.tif')
+            # nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'nbr.tif')
+            # ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir,self.resolution,self.region,'ndwi.tif')
             outf = join(outdir,f'{self.region}_concat_30m.tif')
 
         elif self.resolution == '1km':
@@ -42,11 +43,11 @@ class Concat_Data:
             DEM_fpath = join(additional_index.DEM_1km().data_dir, f'{self.region}/DEM_1km_{self.region}.tif')
             ndvi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
                               'ndvi.tif')
-            mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
-                               'mndwi.tif')
-            nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region, 'nbr.tif')
-            ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
-                              'ndwi.tif')
+            # mndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
+            #                    'mndwi.tif')
+            # nbr_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region, 'nbr.tif')
+            # ndwi_fpath = join(additional_index.HLS_Vegetation_Index().data_dir, self.resolution, self.region,
+            #                   'ndwi.tif')
             outf = join(outdir,f'{self.region}_concat_1km.tif')
 
         else:
@@ -55,10 +56,11 @@ class Concat_Data:
         HLS_data = rasterio.open(HLS_fpath).read()
         DEM_data = rasterio.open(DEM_fpath).read()
         ndvi_data = rasterio.open(ndvi_fpath).read()
-        mndwi_data = rasterio.open(mndwi_fpath).read()
-        nbr_data = rasterio.open(nbr_fpath).read()
-        ndwi_data = rasterio.open(ndwi_fpath).read()
-        stack_data = np.concatenate((HLS_data, DEM_data, ndvi_data, mndwi_data, nbr_data, ndwi_data), axis=0)
+        # mndwi_data = rasterio.open(mndwi_fpath).read()
+        # nbr_data = rasterio.open(nbr_fpath).read()
+        # ndwi_data = rasterio.open(ndwi_fpath).read()
+        # stack_data = np.concatenate((HLS_data, DEM_data, ndvi_data, mndwi_data, nbr_data, ndwi_data), axis=0)
+        stack_data = np.concatenate((HLS_data, DEM_data, ndvi_data), axis=0)
 
         print('reading done')
 

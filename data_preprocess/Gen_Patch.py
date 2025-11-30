@@ -7,14 +7,18 @@ this_script_root = join(data_root,'Patch')
 class GenPatch:
     def __init__(self):
         self.data_dir = join(this_script_root,'Gen_patch')
-        # self.region = 'AZ'
-        self.region = 'NM'
+        self.region = 'AZ'
+        # self.region = 'NM'
         self.resolution = '30m'
         # self.resolution = '1km'
         self.PATCH_SIZE_1km = 224
         self.STRIDE_1km = 28
-        self.PATCH_SIZE_30m = 448
-        self.STRIDE_30m = 224
+
+        # self.PATCH_SIZE_30m = 896
+        # self.STRIDE_30m = 448
+
+        self.PATCH_SIZE_30m = 1792
+        self.STRIDE_30m = 896
         pass
 
     def run(self):
@@ -32,6 +36,10 @@ class GenPatch:
         # outdir_hls = join(self.data_dir,'patches/hls_1km')
         outdir_hls = join(self.data_dir,'HLS',self.region,self.resolution)
         T.mkdir(outdir_hls,force=True)
+        for f in tqdm(T.listdir(outdir_hls),desc='removing old patch'):
+            fpath = join(outdir_hls,f)
+            os.remove(fpath)
+        # exit()
 
         if self.resolution == '1km':
             PATCH_SIZE = self.PATCH_SIZE_1km
@@ -71,8 +79,8 @@ class GenPatch:
                 params = [hls_path,row,col,x_min,xres,y_max,row,yres,patch_fpath,PATCH_SIZE,dstSRS]
                 params_list.append(params)
                 # self.kernrl_generate_patches_HLS(params)
-        print(f"Total patches saved: {count}")
         MULTIPROCESS(self.kernrl_generate_patches_HLS,params_list).run(process=10,process_or_thread='p')
+        print(f"Total patches saved: {count}")
 
     def kernrl_generate_patches_HLS(self,params):
         hls_path,row,col,x_min,xres,y_max,row,yres,patch_fpath,PATCH_SIZE,dstSRS = params
@@ -94,7 +102,8 @@ class GenPatch:
         # pprint(hls_patch)
         # print(np.shape(hls_patch))
         # exit()
-        bands_name_list = global_band_list
+        # bands_name_list = global_band_list
+        bands_name_list = global_band_list_8
         driver = gdal.GetDriverByName('GTiff')
         out_ds = driver.Create(patch_fpath, PATCH_SIZE, PATCH_SIZE, len(hls_patch), gdal.GDT_Float32,
                                options=['COMPRESS=LZW', 'BIGTIFF=YES'])

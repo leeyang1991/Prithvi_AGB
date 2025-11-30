@@ -28,8 +28,8 @@ warnings.filterwarnings('ignore')
 
 T = Tools()
 this_script_root = join(this_root,'train')
-# study_region = 'AZ'
-study_region = 'NM'
+study_region = 'AZ'
+# study_region = 'NM'
 
 def init_datamodule_train():
     dataset_path = Path(join(data_root,'Patch','Split_patch'))
@@ -45,9 +45,9 @@ def init_datamodule_train():
 
         1157.8291703998,
         0.12216294396684,
-        -0.30665385143926,
-        -0.063655500216475,
-        -0.24058237596646,
+        # -0.30665385143926,
+        # -0.063655500216475,
+        # -0.24058237596646,
     ]
     # means = np.array(means) / 10000.
     # means_list = means.tolist()
@@ -62,16 +62,16 @@ def init_datamodule_train():
 
         690.89240572151,
         0.1549335487372,
-        0.14398646446124,
-        0.083608689893597,
-        0.1137088480004,
+        # 0.14398646446124,
+        # 0.083608689893597,
+        # 0.1137088480004,
     ]
     # stds = np.array(stds) / 10000.
     # stds_list = stds.tolist()
 
     datamodule = terratorch.datamodules.GenericNonGeoPixelwiseRegressionDataModule(
         batch_size=20,
-        num_workers=20,
+        num_workers=8,
         # num_classes=6,
         check_stackability=False,
         # Define dataset paths
@@ -95,8 +95,8 @@ def init_datamodule_train():
         # Define standardization values
         means=mean_list,
         stds=std_list,
-        dataset_bands=global_band_list,
-        output_bands=global_band_list,
+        dataset_bands=global_band_list_8,
+        output_bands=global_band_list_8,
         rgb_indices=[2, 1, 0],
         no_data_replace=0,
         no_label_replace=-1,
@@ -117,9 +117,9 @@ def init_datamodule_predict_30m():
 
         1157.8291703998,
         0.12216294396684,
-        -0.30665385143926,
-        -0.063655500216475,
-        -0.24058237596646,
+        # -0.30665385143926,
+        # -0.063655500216475,
+        # -0.24058237596646,
     ]
     # means = np.array(means) / 10000.
     # means_list = means.tolist()
@@ -134,16 +134,16 @@ def init_datamodule_predict_30m():
 
         690.89240572151,
         0.1549335487372,
-        0.14398646446124,
-        0.083608689893597,
-        0.1137088480004,
+        # 0.14398646446124,
+        # 0.083608689893597,
+        # 0.1137088480004,
     ]
     # stds = np.array(stds) / 10000.
     # stds_list = stds.tolist()
 
     datamodule = terratorch.datamodules.GenericNonGeoPixelwiseRegressionDataModule(
-        batch_size=12,
-        num_workers=7,
+        batch_size=2,
+        num_workers=1,
         # num_classes=6,
         check_stackability=False,
         # Define dataset paths
@@ -167,8 +167,8 @@ def init_datamodule_predict_30m():
         # Define standardization values
         means=mean_list,
         stds=std_list,
-        dataset_bands=global_band_list,
-        output_bands=global_band_list,
+        dataset_bands=global_band_list_8,
+        output_bands=global_band_list_8,
         rgb_indices=[2, 1, 0],
         no_data_replace=0,
         no_label_replace=-1,
@@ -220,7 +220,7 @@ def init_model():
             "backbone_num_frames": 1,  # 1 is the default value,
             # "backbone_img_size": 224,
             # "backbone_bands": ["BLUE", "GREEN", "RED", "NIR_NARROW", "SWIR_1", "SWIR_2"],
-            "backbone_bands": global_band_list,
+            "backbone_bands": global_band_list_8,
             # "backbone_coords_encoding": [], # use ["time", "location"] for time and location metadata
 
             # Necks
@@ -304,6 +304,9 @@ def check_performance(ckpt_path):
 def predict_agb(ckpt_path):
     outdir = join(this_script_root,'agb_pred',study_region,'30m')
     T.mkdir(outdir,force=True)
+    for f in tqdm(T.listdir(outdir),desc='removing old files'):
+        fpath = join(outdir,f)
+        os.remove(fpath)
     model_init = init_model()
     datamodule = init_datamodule_predict_30m()
     datamodule.setup("test")
@@ -336,9 +339,9 @@ def predict_agb(ckpt_path):
             for i in range(len(preds)):
                 preds_image = preds[i].cpu().numpy()
                 patch_filename = filename_list[i]
-                if 'patch_0084' in patch_filename:
-                    print(preds_image)
-                    pause()
+                # if 'patch_0084' in patch_filename:
+                #     print(preds_image)
+                #     pause()
                 save_pred_image(preds_image, patch_filename,outdir)
             # exit()
 
@@ -454,15 +457,21 @@ def mosaic_spatial_tifs_no_overlap():
 def mosaic_spatial_tifs_overlap():
     # patch_size = 224
     # stride = 112
+    # patch_size = 112
+    # stride = 56
+    # patch_size = 448
+    # stride = 224
+    # patch_size = 896
+    # stride = 448
+    patch_size = 1792
+    stride = 896
 
-    patch_size = 448
-    stride = 224
     nodata_value = global_nodata_value
     dstSRS = global_gedi_WKT()
     # fdir = join(results_root,'agb_pred','patch_30m')
     fdir = join(this_script_root,'agb_pred',study_region,'30m/')
     outdir = join(this_script_root,'agb_pred',study_region,'mosaic')
-    outf = join(outdir,f'agb_30m.tif')
+    outf = join(outdir,f'agb_30m_8_bands_1792.tif')
 
     T.mkdir(outdir)
     fpath_list = []
@@ -526,12 +535,7 @@ def mosaic_spatial_tifs_overlap():
 
     AGB_map = AGB_sum / np.maximum(AGB_weight, 1e-6)
     AGB_map = AGB_map[stride:-stride, stride:-stride]
-    # print(np.shape(AGB_map))
-    # print(cols, rows)
-    # exit()
-    # plt.imshow(AGB_map)
-    # plt.show()
-    # pause()
+
     print('writing...')
     driver = gdal.GetDriverByName('GTiff')
     cols_new = cols
@@ -550,9 +554,29 @@ def mosaic_spatial_tifs_overlap():
     out_ds = None
     print('done')
 
+def split_odd_and_even():
+    import shutil
+    fdir = join(this_script_root, 'agb_pred', study_region, '30m/')
+    outdir = join(this_script_root, 'agb_pred', study_region, 'split_odd_even')
+    T.mkdir(outdir)
+    odd_dir = join(outdir, 'odd')
+    even_dir = join(outdir, 'even')
+    T.mkdir(odd_dir)
+    T.mkdir(even_dir)
+    for f in tqdm(T.listdir(fdir)):
+        number = f.split('_')[-1].split('.')[0]
+        number = int(number)
+        if number % 2 == 0:
+            shutil.copy(join(fdir, f), join(even_dir, f))
+        else:
+            shutil.copy(join(fdir, f), join(odd_dir, f))
+    pass
+
 def resample_30_to_1km():
-    fpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m.tif')
-    outpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m_resample_1km.tif')
+    # fpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m.tif')
+    fpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m_8_bands_1792.tif')
+    # outpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m_resample_1km.tif')
+    outpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m_8_bands_1792_1km.tif')
     res = global_res_gedi
     SRS = global_gedi_WKT()
     ToRaster().resample_reproj(fpath, outpath, res, srcSRS=SRS, dstSRS=SRS)
@@ -566,9 +590,11 @@ def benchmark():
     import matplotlib.pyplot as plt
     from sklearn.metrics import r2_score
 
-    pred_agb_fpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m_resample_1km.tif')
-    obs_agb_fpath = join(data_root,'GEDI/tif/gedi_2019-2023_clipped.tif')
-
+    # pred_agb_fpath = join(results_root, 'agb_pred', 'mosaic', f'agb_30m_resample_1km.tif')
+    pred_agb_fpath = join(this_script_root, 'agb_pred', study_region, 'mosaic', f'agb_30m_8_bands_1792_1km.tif')
+    # obs_agb_fpath = join(data_root,'GEDI/tif/gedi_2019-2023.tif')
+    # /home/yangli/SSD4T/Prithvi_AGB/data/GEDI/tif
+    obs_agb_fpath = join(data_root,'GEDI/tif/gedi_2019-2023.tif')
     src_obs = rasterio.open(obs_agb_fpath)
     obs = src_obs.read(1)
     obs_profile = src_obs.profile
@@ -581,25 +607,31 @@ def benchmark():
     pred_bounds = src_pred.bounds
     pred_transform = src_pred.transform
     pred_crs = src_pred.crs
-    plt.imshow(obs,vmin=0,vmax=150,cmap='jet')
-    plt.figure()
-    plt.imshow(pred,vmin=0,vmax=150,cmap='jet')
-    plt.show()
+    # plt.imshow(obs,vmin=0,vmax=150,cmap='jet')
+    # plt.figure()
+    # plt.imshow(pred,vmin=0,vmax=150,cmap='jet')
+    # plt.show()
     # exit()
-    xmin = max(obs_bounds.left, pred_bounds.left)
-    xmax = min(obs_bounds.right, pred_bounds.right)
-    ymin = max(obs_bounds.bottom, pred_bounds.bottom)
-    ymax = min(obs_bounds.top, pred_bounds.top)
+    # xmin = max(obs_bounds.left, pred_bounds.left)
+    # xmax = min(obs_bounds.right, pred_bounds.right)
+    # ymin = max(obs_bounds.bottom, pred_bounds.bottom)
+    # ymax = min(obs_bounds.top, pred_bounds.top)
+
+    xmin = pred_bounds.left
+    xmax = pred_bounds.right
+    ymin = pred_bounds.bottom
+    ymax = pred_bounds.top
+
     print(xmin, xmax, ymin, ymax)
     window_obs = from_bounds(xmin, ymin, xmax, ymax, obs_transform)
     obs_crop = src_obs.read(1, window=window_obs)
     transform_obs_crop = src_obs.window_transform(window_obs)
-    # plt.imshow(obs_crop,vmin=0,vmax=100,cmap='jet')
-    # plt.figure()
-    # plt.imshow(pred,vmin=0,vmax=100,cmap='jet')
-    # plt.show()
-    # print(np.shape(obs_crop))
-    # print(np.shape(pred))
+    plt.imshow(obs_crop,vmin=0,vmax=100,cmap='jet')
+    plt.figure()
+    plt.imshow(pred,vmin=0,vmax=100,cmap='jet')
+    plt.show()
+    print(np.shape(obs_crop))
+    print(np.shape(pred))
     # lim=150
 
     # obs_crop[obs_crop>lim] = np.nan
@@ -631,12 +663,14 @@ def benchmark():
 
 def main():
     # train_agb()
-    ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=96.ckpt')
+    # ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=99.ckpt')
+    # print(ckpt_path)
     # check_performance(ckpt_path)
-    predict_agb(ckpt_path)
+    # predict_agb(ckpt_path)
     # mosaic_spatial_tifs_overlap()
+    # split_odd_and_even()
     # resample_30_to_1km()
-    # benchmark()
+    benchmark()
 
     pass
 
