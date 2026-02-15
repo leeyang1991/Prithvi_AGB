@@ -22,7 +22,8 @@ elif 'Yang-M4Pro.local' in computer_name:
     global_device = 'mps'
     # this_root = '/Volumes/HDD/GPP_ML/'
     # this_root = '/Volumes/NVME4T/Prithvi_AGB/'
-    this_root = '/Volumes/SSD4T/Prithvi_AGB/'
+    # this_root = '/Volumes/SSD4T/Prithvi_AGB/'
+    this_root = '/Volumes/NVME2T/Prithvi_AGB'
     matplotlib.use('TkAgg')
 # elif 'yangligeo' in computer_name:
 #     # yangligeo VPS

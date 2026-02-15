@@ -662,7 +662,7 @@ def benchmark():
     plt.show()
 
 def main():
-    # train_agb()
+    train_agb()
     # ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=99.ckpt')
     # print(ckpt_path)
     # check_performance(ckpt_path)
@@ -670,7 +670,7 @@ def main():
     # mosaic_spatial_tifs_overlap()
     # split_odd_and_even()
     # resample_30_to_1km()
-    benchmark()
+    # benchmark()
 
     pass
 

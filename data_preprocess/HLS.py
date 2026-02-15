@@ -1,11 +1,11 @@
 import copy
+import shutil
 
 import affine
 import math
 
 import matplotlib.pyplot as plt
 import numpy as np
-from pkg_resources import load_entry_point
 from rasterio.windows import Window
 from rasterio.mask import mask
 from rasterio.merge import merge
@@ -19,7 +19,7 @@ from __global__ import *
 import rasterio
 import geopandas as gp
 import earthaccess
-import ee
+# import ee
 import urllib3
 from pathlib import Path
 
@@ -42,7 +42,7 @@ class Download:
 
     def run(self):
         # self.kml_to_shp()
-        # self.gen_urls()
+        self.gen_urls()
         # self.download()
         self.check_download()
         # self.move_tile_to_different_folder()
@@ -321,14 +321,17 @@ class Preprocess_HLS:
     def __init__(self):
         self.data_dir = join(this_script_root,'Preprocess')
         self.conf()
-        # self.region='AZ'
-        self.region='NM'
+        self.region='AZ'
+        # self.region='NM'
         pass
 
     def run(self):
         # self.gen_image_shp()
+        # self.move_files_to_separate_year()
         # self.quality_control_long_term_mean() # 1.1
+        self.quality_control_annual_mean() # 1.1.1
         # self.mosaic_single_tile_and_merge_bands() # 1.2
+        self.mosaic_single_tile_and_merge_bands_separate_year() # 1.2.1
         # self.re_proj_30m() # 1.3
         # self.mosaic_region() # 1.4
         # self.resample_30m_to_1km() # 1.5
@@ -420,8 +423,8 @@ class Preprocess_HLS:
     def quality_control_long_term_mean(self):
         # 1.1
         # fdir = join(self.data_dir,'Downnload')
-        fdir = '/home/yangli/NVME4T/HLS_Download' # Ubuntu
-        # fdir = '/Volumes/NVME2T/HLS_Download' # Mac
+        # fdir = '/home/yangli/NVME4T/HLS_Download' # Ubuntu
+        fdir = '/Volumes/NVME2T/HLS_Download' # Mac
         # fdir = '/Volumes/NVME4T/HLS_Download' # Mac via Ubuntu
         njob = 30  # Ubuntu
         # njob = 8 # mac
@@ -511,6 +514,59 @@ class Preprocess_HLS:
         # print(band_patch_concat_average.shape)
         RasterIO_Func().write_tif(band_patch_concat_average, outf, band_profile)
 
+
+    def quality_control_annual_mean(self):
+        # 1.1
+        # fdir = join(self.data_dir,'Downnload')
+        fdir = '/media/yangli/NVME4T/HLS_Download_separate_year' # Ubuntu
+        # fdir = '/Volumes/NVME2T/HLS_Download_separate_year' # Mac
+        # fdir = '/Volumes/NVME4T/HLS_Download' # Mac via Ubuntu
+        njob = 30  # Ubuntu
+        # njob = 8 # mac
+        # for tile in T.listdir(fdir)[::-1]:
+        #     print(tile)
+        # exit()
+        # geojson_fpath = Download().geojson_fpath
+        # tile_list = Download().get_tiles_from_geojson(geojson_fpath)
+        # print(tile_list)
+        # exit()
+        outdir = join(self.data_dir,'1.1.1_quality_control_annual_mean')
+        # print(isdir(outdir))
+        # exit()
+        # T.mkdir(outdir,force=True)
+        # exit()
+
+        memory_allocate = 0.5 # in GB, 6nGB, njob = tot mem/6nGB
+        qa_filter_list = self.get_qa_filter_list()
+        band_list = self.bands_list
+        params_list = []
+        for tile in tqdm(T.listdir(fdir),desc='init data loader'):
+            for year_str in ['2019', '2020', '2021', '2022', '2023']:
+                outdir_year = join(outdir, year_str)
+                dtype = np.int16
+                # get QA 3d array
+                flist_qa = []
+                for folder in T.listdir(join(fdir,tile,year_str)):
+                    qa_fpath = join(fdir,tile,year_str, folder, f'{folder}.Fmask.tif')
+                    flist_qa.append(qa_fpath)
+                # flist_qa = flist_qa[:10]
+                Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype,mute=True)
+
+                # get each band 3d array
+                for band in band_list:
+                    band_fpath_list = []
+                    for folder in T.listdir(join(fdir, tile,year_str)):
+                        band_fpath = join(fdir, tile,year_str, folder, f'{folder}.{band}.tif')
+                        band_fpath_list.append(band_fpath)
+                    # band_fpath_list = band_fpath_list[:10]
+                    Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype,mute=True)
+                    for idx in Tif_loader_band.block_index_list:
+                        params = [Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir_year,tile,band]
+                        params_list.append(params)
+                        # self.kernel_quality_control_long_term_mean(params)
+        MULTIPROCESS(self.kernel_quality_control_long_term_mean,params_list).run(process=njob)
+
+
     def check_outf_single_file(self,fpath):
         try:
             with rasterio.open(fpath) as src:
@@ -529,6 +585,22 @@ class Preprocess_HLS:
         # 1.2
         fdir = join(self.data_dir,'1.1_quality_control_long_term_mean')
         outdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
+        # tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
+        T.mkdir(outdir,force=True)
+        # total_flag = len(tiles_list)
+        total_flag = len(T.listdir(fdir))
+        # for tile in tiles_list:
+
+        params_list = []
+        for tile in T.listdir(fdir):
+            params = [fdir,outdir,tile]
+            params_list.append(params)
+        MULTIPROCESS(self.kernel_mosaic_single_tile_and_merge_bands,params_list).run(process=30)
+
+    def mosaic_single_tile_and_merge_bands_separate_year(self):
+        # 1.2.1
+        fdir = join(self.data_dir,'1.1.1_quality_control_annual_mean')
+        outdir = join(self.data_dir,'1.2.1_mosaic_single_tile_and_merge_bands')
         # tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
         T.mkdir(outdir,force=True)
         # total_flag = len(tiles_list)
@@ -685,7 +757,7 @@ class Preprocess_HLS:
         import geopandas as gpd
         outdir = join(self.data_dir,'image_shp')
         T.mkdir(outdir)
-        fdir = join(self.data_dir,'Download')
+        fdir = '/home/yangli/SSD4T/Prithvi_AGB/data/HLS/Download/tiles'
         tile_list = []
         shp_flist = []
         for tile in T.listdir(fdir):
@@ -734,6 +806,588 @@ class Preprocess_HLS:
                 if tile in f:
                     os.remove(join(outdir,f))
 
+
+    def move_files_to_separate_year(self):
+        # fdir = '/Volumes/NVME2T/HLS_Download' # Mac
+        # outdir = '/Volumes/NVME2T/HLS_Download_separate_year' # Mac
+
+        fdir = '/media/yangli/NVME4T/HLS_Download' # Ubuntu
+        outdir = '/media/yangli/NVME4T/HLS_Download_separate_year' # Ubuntu
+
+        T.mkdir(outdir,force=True)
+        for tile in tqdm(T.listdir(fdir)):
+            for folder in T.listdir(join(fdir,tile)):
+                # folder name example: HLS.L30.T11SQA.2019001T180852.v2.0
+                folder_path = join(fdir,tile,folder)
+                year = folder.split('.')[3][:4]
+                outdir_year = join(outdir,tile,year,folder)
+                shutil.move(folder_path,outdir_year)
+        #         exit()
+        # exit()
+        pass
+
+    def plot_time_series(self):
+        fdir = join(self.data_dir,'reproj_qa_concatenate')
+        sat = 'L30'
+        band = 'B02'
+        year = '2019'
+        tile = 'T12STG'
+        fdir_i = join(fdir,'/'.join([sat,band,year,tile]))
+        for f in T.listdir(fdir_i):
+            fpath = join(fdir_i,f)
+            spatial_dict = T.load_npy(fpath)
+            for pix in spatial_dict:
+                vals = spatial_dict[pix]
+                if T.is_all_nan(vals):
+                    continue
+                print(vals)
+                plt.plot(vals)
+                plt.scatter(list(range(len(vals))),vals)
+                plt.title(pix)
+                plt.show()
+                pause()
+
+        pass
+
+
+    def padding_224(self):
+        fpath = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km.tif')
+        outf = join(self.data_dir,'reproj_qa_concatenate_aggragate_tif_mosaic_merge-bands/B2-B7_1km_224.tif')
+
+        with rasterio.open(fpath) as src:
+            profile = src.profile
+            data = src.read()
+
+        H, W = data.shape[1:]
+        pad_h = (224 - H % 224) % 224
+        pad_w = (224 - W % 224) % 224
+        data_pad = np.pad(data, ((0, 0), (0, pad_h), (0, pad_w)), mode='constant', constant_values=np.nan)
+
+        # 更新元数据
+        profile.update(height=data_pad.shape[1], width=data_pad.shape[2])
+
+        with rasterio.open(outf, "w", **profile) as dst:
+            dst.write(data_pad)
+        pass
+
+    def raster2array(self, rasterfn):
+        '''
+        create array from raster
+        Agrs:
+            rasterfn: tiff file path
+        Returns:
+            array: tiff data, an 2D array
+        '''
+        raster = gdal.Open(rasterfn)
+        projection_wkt = raster.GetProjection()
+        geotransform = raster.GetGeoTransform()
+        originX = geotransform[0]
+        originY = geotransform[3]
+        pixelWidth = geotransform[1]
+        pixelHeight = geotransform[5]
+        band = raster.GetRasterBand(1)
+        array = band.ReadAsArray()
+        array = np.asarray(array)
+        del raster
+        return array, originX, originY, pixelWidth, pixelHeight,projection_wkt
+
+    def array2raster(self, newRasterfn, longitude_start, latitude_start, pixelWidth, pixelHeight, array, projection_wkt,ndv=-999999):
+        cols = array.shape[1]
+        rows = array.shape[0]
+        originX = longitude_start
+        originY = latitude_start
+        # open geotiff
+        driver = gdal.GetDriverByName('GTiff')
+        if os.path.exists(newRasterfn):
+            os.remove(newRasterfn)
+        outRaster = driver.Create(newRasterfn, cols, rows, 1, gdal.GDT_Float32)
+        # outRaster = driver.Create(newRasterfn, cols, rows, 1, gdal.GDT_UInt16)
+        # ndv = 255
+        # Add Color Table
+        # outRaster.GetRasterBand(1).SetRasterColorTable(ct)
+        outRaster.SetGeoTransform((originX, pixelWidth, 0, originY, 0, pixelHeight))
+        # Write Date to geotiff
+        outband = outRaster.GetRasterBand(1)
+
+        outband.SetNoDataValue(ndv)
+        outband.WriteArray(array)
+        outRasterSRS = osr.SpatialReference()
+        # outRasterSRS.ImportFromEPSG(4326)
+        outRaster.SetProjection(projection_wkt)
+        # Close Geotiff
+        outband.FlushCache()
+        del outRaster
+
+    def steps(self):
+        '''
+        download 500g
+
+        qa 500g
+        concatenate 500g*2
+        aggragate 14g
+
+
+        reproj
+        mosaic
+        merge-bands
+        '''
+        pass
+
+class Preprocess_HLS_annual_mean:
+    def __init__(self):
+        self.data_dir = join(this_script_root,'Preprocess_annual_mean')
+        self.conf()
+        self.region='AZ'
+        # self.region='NM'
+        pass
+
+    def run(self):
+        # self.gen_image_shp()
+        # self.move_files_to_separate_year()
+        # self.quality_control_annual_mean() # 1.1
+        # self.mosaic_single_tile_and_merge_bands_separate_year() # 1.2
+        self.re_proj_30m() # 1.3
+        # self.mosaic_region() # 1.4
+        # self.resample_30m_to_1km() # 1.5
+        # self.plot_time_series()
+        # self.padding_224()
+
+        pass
+
+    def conf(self):
+        self.bands_list = [
+            'B02',
+            'B03',
+            'B04',
+            'B05',
+            'B06',
+            'B07',
+        ]
+        self.year_list = ['2019', '2020', '2021', '2022', '2023']
+        self.sat_list = ['L30', 'S30']
+        # self.tile_list = ['T12STG','T12STH','T12SUG','T12SUH','T12SVG','T12SVH']
+        sat = self.sat_list[0]
+        band = self.bands_list[0]
+        year = self.year_list[0]
+        block_dict = {}
+        # for tile in self.tile_list:
+        #     block_list = T.listdir(join(self.data_dir,'reproj_qa_concatenate','/'.join([sat,band,year,tile])))
+        #     block_dict[tile] = block_list
+        self.block_dict = block_dict
+        pass
+
+    def re_proj_30m(self):
+        # 1.3
+        njob = 30
+        fdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
+        outdir = join(self.data_dir,'1.3_reproj_30m')
+        T.mkdir(outdir,force=True)
+        dst_crs = global_gedi_WKT()
+        dst_res = 30
+        params_list = []
+        for year in T.listdir(fdir):
+            outdir_i = join(outdir,year)
+            fdir_i = join(fdir,year)
+            T.mkdir(outdir_i,force=True)
+            for f in T.listdir(join(fdir,year)):
+                params = [fdir_i,f,outdir_i,dst_crs,dst_res]
+                params_list.append(params)
+        MULTIPROCESS(self.kernel_re_proj,params_list).run(process=njob)
+
+    def resample_30m_to_1km(self):
+        # 1.5
+        fpath = join(self.data_dir,'1.4_mosaic_AZ','AZ_6_bands.tif')
+        outdir = join(self.data_dir,'1.5_resample_30m_to_1km')
+        T.mkdir(outdir,force=True)
+        outf = join(outdir,'AZ_6_bands_resample_1km.tif')
+        dst_crs = global_gedi_WKT()
+        gedi_res = global_res_gedi
+        RasterIO_Func().reproject_tif(fpath,outf,dst_crs,dst_crs_res=gedi_res)
+
+        pass
+
+    def kernel_re_proj(self,params):
+        fdir,f,outdir,dst_crs,dst_res = params
+        fpath = join(fdir, f)
+        outf = join(outdir, f)
+        RasterIO_Func().reproject_tif(fpath, outf, dst_crs, dst_crs_res=dst_res)
+
+        pass
+
+    def mosaic_region(self):
+        # 1.4
+        geojson_fpath = join(data_root, f'global_tiles_HLS/{self.region}', f'{self.region}.geojson')
+        tile_list = Download().get_tiles_from_geojson(geojson_fpath)
+        # print(tile_list)
+        # exit()
+        fdir = join(self.data_dir,'1.3_reproj_30m')
+        outdir = join(self.data_dir,'1.4_mosaic')
+        T.mkdir(outdir,force=True)
+        outf = join(outdir,f'{self.region}_6_bands.tif')
+        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
+        print(f'mosaic {self.region}')
+        RasterIO_Func().mosaic_tifs(flist,outf,bigtiff='YES')
+        print(f'mosaic {self.region} done')
+        print('building pyramid')
+        RasterIO_Func().build_pyramid(outf)
+        print('building pyramid done')
+        pass
+
+
+    def get_WKT(self,fpath):
+        raster = gdal.Open(fpath)
+        projection_wkt = raster.GetProjection()
+        return projection_wkt
+
+
+    def kernel_quality_control_long_term_mean(self,params):
+        Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band = params
+        iter_length = Tif_loader_qa.iter_length
+        digit = math.log(iter_length,10) + 1
+        digit = int(digit)
+        outdir_i = join(outdir, tile, band)
+        outf = join(outdir_i, f'{tile}.{band}.{idx:0{digit}d}.tif')
+        # print(outf)
+        if isfile(outf):
+            if self.check_outf_single_file(outf):
+                return
+            else:
+                print(f'file error, removing {outf}')
+                os.remove(outf)
+        qa_patch_concat, qa_profile = Tif_loader_qa.array_iterator_index(idx)
+        qa_filter_mask_list = []
+        for qa_patch_concat_i in qa_patch_concat:
+        # for qa_patch_concat_i in tqdm(qa_patch_concat):
+            qa_filter_mask = self.gen_qa_mask_array(qa_patch_concat_i, qa_filter_list)
+            qa_filter_mask = qa_filter_mask.astype(bool)
+            qa_filter_mask_list.append(qa_filter_mask)
+        qa_filter_mask_concat = np.stack(qa_filter_mask_list, axis=0)
+        band_patch_concat, band_profile = Tif_loader_band.array_iterator_index(idx)
+        # band_patch_concat[~qa_filter_mask_concat] = -9999
+        # band_patch_concat = np.array(band_patch_concat, dtype=np.float32)
+        # band_patch_concat[band_patch_concat == -9999] = np.nan
+        # band_patch_concat_average = np.nanmean(band_patch_concat, axis=0)
+        # print(qa_filter_mask_concat.shape)
+        band_patch_concat_average = np.mean(band_patch_concat, axis=0,where=qa_filter_mask_concat)
+        # delta = band_patch_concat_average1 - band_patch_concat_average
+        # plt.imshow(band_patch_concat_average)
+        # plt.show()
+        # plt.imshow(band_patch_concat_average1)
+        # plt.show()
+        # plt.imshow(delta)
+        # plt.show()
+        # pause()
+
+        try:
+            T.mkdir(outdir_i, force=True)
+        except:
+            pass
+        # print(band_patch_concat_average.shape)
+        RasterIO_Func().write_tif(band_patch_concat_average, outf, band_profile)
+
+
+    def quality_control_annual_mean(self):
+        # 1.1
+        # fdir = join(self.data_dir,'Downnload')
+        fdir = '/media/yangli/NVME4T/HLS_Download_separate_year' # Ubuntu
+        # fdir = '/Volumes/NVME2T/HLS_Download_separate_year' # Mac
+        # fdir = '/Volumes/NVME4T/HLS_Download' # Mac via Ubuntu
+        njob = 30  # Ubuntu
+        # njob = 8 # mac
+        # for tile in T.listdir(fdir)[::-1]:
+        #     print(tile)
+        # exit()
+        # geojson_fpath = Download().geojson_fpath
+        # tile_list = Download().get_tiles_from_geojson(geojson_fpath)
+        # print(tile_list)
+        # exit()
+        outdir = join(self.data_dir,'1.1_quality_control_annual_mean')
+        # print(isdir(outdir))
+        # exit()
+        # T.mkdir(outdir,force=True)
+        # exit()
+
+        memory_allocate = 0.5 # in GB, 6nGB, njob = tot mem/6nGB
+        qa_filter_list = self.get_qa_filter_list()
+        band_list = self.bands_list
+        params_list = []
+        for tile in tqdm(T.listdir(fdir),desc='init data loader'):
+            for year_str in ['2019', '2020', '2021', '2022', '2023']:
+                outdir_year = join(outdir, year_str)
+                dtype = np.int16
+                # get QA 3d array
+                flist_qa = []
+                for folder in T.listdir(join(fdir,tile,year_str)):
+                    qa_fpath = join(fdir,tile,year_str, folder, f'{folder}.Fmask.tif')
+                    flist_qa.append(qa_fpath)
+                # flist_qa = flist_qa[:10]
+                Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype,mute=True)
+
+                # get each band 3d array
+                for band in band_list:
+                    band_fpath_list = []
+                    for folder in T.listdir(join(fdir, tile,year_str)):
+                        band_fpath = join(fdir, tile,year_str, folder, f'{folder}.{band}.tif')
+                        band_fpath_list.append(band_fpath)
+                    # band_fpath_list = band_fpath_list[:10]
+                    Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype,mute=True)
+                    for idx in Tif_loader_band.block_index_list:
+                        params = [Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir_year,tile,band]
+                        params_list.append(params)
+                        # self.kernel_quality_control_long_term_mean(params)
+        MULTIPROCESS(self.kernel_quality_control_long_term_mean,params_list).run(process=njob)
+
+
+    def check_outf_single_file(self,fpath):
+        try:
+            with rasterio.open(fpath) as src:
+                profile = src.profile
+                height = profile['height']
+                width = profile['width']
+                data = src.read(window=((height - 1, height), (width - 1, width)))
+                data = src.read(window=((int(height/2) - 1, int(height/2)), (int(width/2) - 1, int(width/2))))
+                data = src.read(window=((0, 1), (0, 1)))
+                return True
+        except:
+            print(f'error reading {fpath}')
+            return False
+
+
+    def mosaic_single_tile_and_merge_bands_separate_year(self):
+        # 1.2
+        fdir = join(self.data_dir,'1.1_quality_control_annual_mean')
+        outdir = join(self.data_dir,'1.2_mosaic_single_tile_and_merge_bands')
+        # tiles_list = Download().get_tiles_from_geojson(Download().geojson_fpath)
+        T.mkdir(outdir,force=True)
+        # total_flag = len(tiles_list)
+        total_flag = len(T.listdir(fdir))
+        # for tile in tiles_list:
+
+        params_list = []
+        for year in T.listdir(fdir):
+            for tile in T.listdir(join(fdir,year)):
+                fdir_i = join(fdir,year)
+                outdir_i = join(outdir,year)
+                params = [fdir_i,outdir_i,tile]
+                params_list.append(params)
+            MULTIPROCESS(self.kernel_mosaic_single_tile_and_merge_bands,params_list).run(process=8)
+
+    def kernel_mosaic_single_tile_and_merge_bands(self,params):
+        fdir,outdir,tile = params
+        try:
+            T.mkdir(outdir, force=True)
+        except:
+            pass
+        mosaic_list = []
+        band_name_list = []
+        out_profile = ''
+        # for band in tqdm(T.listdir(join(fdir,tile)),desc=f'{flag}/{total_flag} {tile}'):
+        for band in T.listdir(join(fdir, tile)):
+            array_list = []
+            profile_list = []
+            for f in T.listdir(join(fdir, tile, band)):
+                fpath = join(fdir, tile, band, f)
+                array, profile = RasterIO_Func().read_tif(fpath)
+                array_list.append(array)
+                profile_list.append(profile)
+            mosaic, out_profile = RasterIO_Func().mosaic_arrays(array_list, profile_list)
+            mosaic = mosaic.squeeze()
+            mosaic_list.append(mosaic)
+            band_name_list.append(band)
+        mosaic_list = np.array(mosaic_list)
+        outf = join(outdir, f'{tile}.tif')
+        if isfile(outf):
+            if self.check_outf_single_file(outf):
+                return
+            else:
+                os.remove(outf)
+        RasterIO_Func().write_tif_multi_bands(mosaic_list, outf, out_profile, band_name_list)
+        pass
+
+    def quality_control1(self):
+        memory_allocate = 0.1 # in GB
+        qa_filter_list = self.get_qa_filter_list()
+        band_list = self.bands_list
+        fdir = join(self.data_dir,'Download')
+
+        for tile in T.listdir(fdir):
+            dtype = np.int16
+            # get QA 3d array
+            flist_qa = []
+            for folder in T.listdir(join(fdir,tile)):
+                qa_fpath = join(fdir,tile, folder, f'{folder}.Fmask.tif')
+                flist_qa.append(qa_fpath)
+            Tif_loader_qa = Tif_loader(flist_qa,memory_allocate,dtype=dtype)
+            qa_band_array_dict = {}
+            for idx in tqdm(Tif_loader_qa.block_index_list,desc='loading qa'):
+                qa_patch_concat, qa_profile = Tif_loader_qa.array_iterator_index(idx)
+                qa_filter_mask_list = []
+                for qa_patch_concat_i in qa_patch_concat:
+                    qa_filter_mask = self.gen_qa_mask_array(qa_patch_concat_i,qa_filter_list)
+                    # print(qa_filter_mask.shape)
+                    qa_filter_mask_list.append(qa_filter_mask)
+                qa_filter_mask_concat = np.stack(qa_filter_mask_list,axis=0)
+                # print(qa_filter_mask_concat.shape)
+                qa_band_array_dict[idx] = qa_filter_mask_concat
+
+            # get each band 3d array
+            for band in band_list:
+                band_fpath_list = []
+                for folder in T.listdir(join(fdir, tile)):
+                    band_fpath = join(fdir, tile, folder, f'{folder}.{band}.tif')
+                    band_fpath_list.append(band_fpath)
+                Tif_loader_band = Tif_loader(band_fpath_list,memory_allocate,dtype=dtype)
+                for idx in Tif_loader_band.block_index_list:
+                    qa_patch_concat = qa_band_array_dict[idx]
+                    band_patch_concat, band_profile = Tif_loader_band.array_iterator_index(idx)
+                    print(qa_patch_concat.shape)
+                    print(band_patch_concat.shape)
+                    band_patch_concat_mask_list = []
+                    for i in tqdm(range(qa_patch_concat.shape[0])):
+                        band_patch_mask = band_patch_concat[i][~qa_patch_concat[i]]
+                        band_patch_concat_mask_list.append(band_patch_mask)
+                        if i == 0:
+                            print(band_patch_mask.shape)
+                    band_patch_concat_mask = np.stack(band_patch_concat_mask_list,axis=0)
+                    print(band_patch_concat_mask.shape)
+                    pause()
+
+
+                exit()
+
+
+    def get_qa_filter_list(self):
+        # print('need water body!!!!')
+        # raise 'need water body!!!!'
+        '''
+        see:https://lpdaac.usgs.gov/documents/1698/HLS_User_Guide_V2.pdf#page=17.08
+        fmask value:
+        clean pixel values for No water/snow_ice/cloud/cloud_shadow/Adjacent_to_cloud:
+        [0,64,128,192]
+        bit num|mask name        |bit value|mask description
+        7-6    |aerosol level    |11       |High aerosol
+        7-6    |aerosol level    |10       |Moderate aerosol
+        7-6    |aerosol level    |01       |Low aerosol
+        7-6    |aerosol level    |00       |Climatology aerosol
+        5      |Water            |1        |Yes
+        5      |Water            |0        |No
+        4      |Snow/ice         |1        |Yes
+        4      |Snow/ice         |0        |No
+        3      |Cloud shadow     |1        |Yes
+        3      |Cloud shadow     |0        |No
+        2      |Adjacent to cloud|1        |Yes
+        2      |Adjacent to cloud|0        |No
+        1      |Cloud            |1        |Yes
+        1      |Cloud            |0        |No
+        0      |Cirrus           |NA       |NA
+        '''
+        # qa_filter_list = [
+        #     0b00000000,
+        #     0b10000000,
+        #     0b11000000,
+        #     0b01000000,
+        #     0b00100000,
+        #     0b10100000,
+        #     0b11100000,
+        #     0b01100000,
+        # ]
+        # qa_filter_list.sort()
+        # print(qa_filter_list)
+        qa_filter_list = []
+        for bit in range(pow(2, 3)):
+            # print(bit*2**5)
+            qa_filter_list.append(bit * pow(2, 5))
+        return qa_filter_list
+
+    def gen_qa_mask_array(self,qa_array,qa_filter_list):
+        arr_init = np.ones(qa_array.shape, dtype=np.uint8)
+        arr_init_copy_qa_list = []
+        for qa_code in qa_filter_list:
+            arr_init_copy = copy.copy(qa_code)
+            arr_init_copy_qa = arr_init_copy & qa_array
+            arr_init_copy_qa_list.append(arr_init_copy_qa)
+
+        arr_filter_init = np.zeros(qa_array.shape, dtype=np.uint8)
+        for arr_init_copy_qa in arr_init_copy_qa_list:
+            arr_filter = qa_array == arr_init_copy_qa
+            arr_filter_init += arr_filter
+        arr_filter_init[arr_filter_init>0] = 1
+
+        return arr_filter_init
+
+    def gen_image_shp(self):
+        from shapely.geometry import Polygon
+        import geopandas as gpd
+        outdir = join(self.data_dir,'image_shp')
+        T.mkdir(outdir)
+        fdir = '/home/yangli/SSD4T/Prithvi_AGB/data/HLS/Download/tiles'
+        tile_list = []
+        shp_flist = []
+        for tile in T.listdir(fdir):
+            for folder in T.listdir(join(fdir,tile)):
+                for f in T.listdir(join(fdir,tile,folder)):
+                    fpath = join(fdir,tile,folder,f)
+                    # print(fpath)
+                    # print(isfile(fpath))
+                    # exit()
+                    # array, originX, originY, pixelWidth, pixelHeight, _ = self.raster2array(fpath)
+                    array,profile = RasterIO_Func().read_tif(fpath)
+                    crs = profile['crs']
+                    array = array.squeeze()
+                    # pprint(profile)
+                    originX = profile['transform'][2]
+                    originY = profile['transform'][5]
+                    pixelWidth = profile['transform'][0]
+                    pixelHeight = profile['transform'][4]
+                    endX = originX+array.shape[1]*pixelWidth
+                    endY = originY+array.shape[0]*pixelHeight
+                    ll_point = (originX, originY)
+                    lr_point = (endX, originY)
+                    ur_point = (endX, endY)
+                    ul_point = (originX, endY)
+                    # print(ll_point, lr_point, ur_point, ul_point)
+                    # exit()
+                    polygon_geom = [Polygon([ll_point, lr_point, ur_point, ul_point])]
+                    outf = join(outdir,f'{tile}.shp')
+                    crs = crs.to_string()
+                    # print(crs)
+                    # exit()
+                    # gpd.GeoDataFrame(geometry=[polygon_geom],crs=crs).to_file(outf)
+                    polygon = gpd.GeoDataFrame(crs=crs, geometry=polygon_geom)
+                    polygon['tile'] = [tile]
+                    polygon.to_file(outf)
+                    tile_list.append(tile)
+                    shp_flist.append(outf)
+                    break
+                break
+
+        gdfs = [gpd.read_file(f).to_crs("EPSG:4326") for f in shp_flist]
+        gdf_merged = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
+        gdf_merged.to_file(join(outdir,'tiles_merge.shp'))
+        for f in T.listdir(outdir):
+            for tile in tile_list:
+                if tile in f:
+                    os.remove(join(outdir,f))
+
+
+    def move_files_to_separate_year(self):
+        # fdir = '/Volumes/NVME2T/HLS_Download' # Mac
+        # outdir = '/Volumes/NVME2T/HLS_Download_separate_year' # Mac
+
+        fdir = '/media/yangli/NVME4T/HLS_Download' # Ubuntu
+        outdir = '/media/yangli/NVME4T/HLS_Download_separate_year' # Ubuntu
+
+        T.mkdir(outdir,force=True)
+        for tile in tqdm(T.listdir(fdir)):
+            for folder in T.listdir(join(fdir,tile)):
+                # folder name example: HLS.L30.T11SQA.2019001T180852.v2.0
+                folder_path = join(fdir,tile,folder)
+                year = folder.split('.')[3][:4]
+                outdir_year = join(outdir,tile,year,folder)
+                shutil.move(folder_path,outdir_year)
+        #         exit()
+        # exit()
+        pass
 
     def plot_time_series(self):
         fdir = join(self.data_dir,'reproj_qa_concatenate')
@@ -1394,7 +2048,8 @@ class RasterIO_Func:
 def main():
     # Download().run()
     # Preprocess_HLS().run()
-    Download_From_GEE_1km().run()
+    Preprocess_HLS_annual_mean().run()
+    # Download_From_GEE_1km().run()
     pass
 
 if __name__ == '__main__':
