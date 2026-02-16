@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from sympy.physics.units import years
 
 from __init__ import *
 
@@ -58,6 +59,8 @@ class HLS_Vegetation_Index:
             profile.update(dtype=np.float32)
             with rasterio.open(outf, "w", **profile) as dst:
                 dst.write(ndvi)
+        print('build pyramid...')
+        RasterIO_Func().build_pyramid(outf,bigtiff=True)
         print('done')
 
     def cal_NDWI(self):
@@ -76,13 +79,19 @@ class HLS_Vegetation_Index:
             ndwi = (green_band - nir_band) / (green_band + nir_band)
             MNDWI = (green_band - swir1_band) / (green_band + swir1_band)
             ndwi = np.array([ndwi])
-
             MNDWI = np.array([MNDWI])
+            ndwi[ndwi > 1] = 1
+            ndwi[ndwi < 0] = 0
+            MNDWI[MNDWI > 1] = 1
+            MNDWI[MNDWI < 0] = 0
             profile.update(dtype=np.float32)
             with rasterio.open(outf_ndwi, "w", **profile) as dst:
                 dst.write(ndwi)
             with rasterio.open(outf_mndwi, "w", **profile) as dst:
                 dst.write(MNDWI)
+        print('build pyramid...')
+        RasterIO_Func().build_pyramid(outf_ndwi,bigtiff=True)
+        RasterIO_Func().build_pyramid(outf_mndwi,bigtiff=True)
         print('done')
         pass
 
@@ -101,11 +110,129 @@ class HLS_Vegetation_Index:
             nir_band = data[3]
             nbr = (nir_band - swir2_band) / (nir_band + swir2_band)
             nbr = np.array([nbr])
+            nbr[nbr > 1] = 1
+            nbr[nbr < 0] = 0
             profile.update(dtype=np.float32)
             with rasterio.open(outf_nbr, "w", **profile) as dst:
                 dst.write(nbr)
+        print('build pyramid...')
+        RasterIO_Func().build_pyramid(outf_nbr,bigtiff=True)
         print('done')
 
+class HLS_Vegetation_Index_annual:
+
+    def __init__(self):
+        pass
+
+    def __init1__(self,year):
+        # if
+        region='AZ'
+        # region='NM'
+        # self.resolution = '1km'
+        self.resolution = '30m'
+        self.data_dir = join(this_script_root,'HLS_Vegetation_Index_annual')
+        if self.resolution == '1km':
+            self.HLS_fpath = join(data_root,f'HLS/Preprocess_annual_mean/1.5_resample_30m_to_1km/{year}/{region}_6_bands_resample_1km.tif')
+            self.outdir = join(self.data_dir, f'1km/{region}/{year}')
+        elif self.resolution == '30m':
+            self.HLS_fpath = join(data_root,f'HLS/Preprocess_annual_mean/1.4_mosaic/{year}/{region}_6_bands.tif')
+            self.outdir = join(self.data_dir, f'30m/{region}/{year}')
+        else:
+            raise
+        T.mkdir(self.outdir, force=True)
+        pass
+
+    def run(self):
+        for year in ['2019','2020','2021','2022','2023']:
+            print(f'processing year {year}')
+            self.__init1__(year)
+            print(f'calculating {year} NDVI')
+            self.cal_ndvi()
+            print(f'calculating {year} NDWI')
+            self.cal_NDWI()
+            print(f'calculating {year} NBR')
+            self.cal_NBR()
+        pass
+
+    def cal_ndvi(self):
+
+        fpath = self.HLS_fpath
+        outf = join(self.outdir,'ndvi.tif')
+        with rasterio.open(fpath) as src:
+            profile = src.profile
+            profile['count'] = 1
+
+            data = src.read()
+            red_band = data[2]
+            nir_band = data[3]
+            ndvi = (nir_band - red_band) / (nir_band + red_band)
+            ndvi[ndvi>1] = 1
+            ndvi[ndvi<0] = 0
+            ndvi[np.isnan(ndvi)] = 0
+            ndvi[np.isinf(ndvi)] = 0
+            ndvi = np.array([ndvi])
+            profile.update(dtype=np.float32)
+            with rasterio.open(outf, "w", **profile) as dst:
+                dst.write(ndvi)
+        print('build pyramid...')
+        RasterIO_Func().build_pyramid(outf,bigtiff=True)
+        print('done')
+
+    def cal_NDWI(self):
+
+        fpath = self.HLS_fpath
+        outf_ndwi = join(self.outdir, 'ndwi.tif')
+        outf_mndwi = join(self.outdir, 'mndwi.tif')
+        with rasterio.open(fpath) as src:
+            profile = src.profile
+            profile['count'] = 1
+
+            data = src.read()
+            green_band = data[1]
+            swir1_band = data[4]
+            nir_band = data[3]
+            ndwi = (green_band - nir_band) / (green_band + nir_band)
+            MNDWI = (green_band - swir1_band) / (green_band + swir1_band)
+            ndwi = np.array([ndwi])
+            MNDWI = np.array([MNDWI])
+            ndwi[ndwi > 1] = 1
+            ndwi[ndwi < 0] = 0
+            MNDWI[MNDWI > 1] = 1
+            MNDWI[MNDWI < 0] = 0
+            profile.update(dtype=np.float32)
+            with rasterio.open(outf_ndwi, "w", **profile) as dst:
+                dst.write(ndwi)
+            with rasterio.open(outf_mndwi, "w", **profile) as dst:
+                dst.write(MNDWI)
+        print('build pyramid...')
+        RasterIO_Func().build_pyramid(outf_ndwi,bigtiff=True)
+        RasterIO_Func().build_pyramid(outf_mndwi,bigtiff=True)
+        print('done')
+        pass
+
+    def cal_NBR(self):
+        fpath = self.HLS_fpath
+        outf_nbr = join(self.outdir, 'nbr.tif')
+
+        with rasterio.open(fpath) as src:
+            profile = src.profile
+            profile['count'] = 1
+
+            data = src.read()
+            green_band = data[1]
+            swir1_band = data[4]
+            swir2_band = data[5]
+            nir_band = data[3]
+            nbr = (nir_band - swir2_band) / (nir_band + swir2_band)
+            nbr = np.array([nbr])
+            nbr[nbr > 1] = 1
+            nbr[nbr < 0] = 0
+            profile.update(dtype=np.float32)
+            with rasterio.open(outf_nbr, "w", **profile) as dst:
+                dst.write(nbr)
+        print('build pyramid...')
+        RasterIO_Func().build_pyramid(outf_nbr,bigtiff=True)
+        print('done')
 
 class DEM_1km:
 
@@ -251,17 +378,16 @@ class DEM_1km:
 
 class DEM_30m:
 
-    def __init__(self,region='NM'):
-        # self.region = 'AZ'
+    def __init__(self,region):
         self.region = region
         self.data_dir = join(this_script_root,f'DEM_30m/{self.region}')
 
     def run(self):
-        # self.read_geojson()
-        # self.download_images()
-        # self.unzip()
-        # self.merge()
-        # self.reproj()
+        self.read_geojson()
+        self.download_images()
+        self.unzip()
+        self.merge()
+        self.reproj()
         self.crop()
         pass
 
@@ -410,7 +536,8 @@ class DEM_30m:
         print('crop done')
 
 def main():
-    HLS_Vegetation_Index().run()
+    # HLS_Vegetation_Index().run()
+    HLS_Vegetation_Index_annual().run()
     # DEM_1km().run()
     # DEM_30m().run()
     pass

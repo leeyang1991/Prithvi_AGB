@@ -946,8 +946,8 @@ class Preprocess_HLS_annual_mean:
         # self.move_files_to_separate_year()
         # self.quality_control_annual_mean() # 1.1
         # self.mosaic_single_tile_and_merge_bands_separate_year() # 1.2
-        self.re_proj_30m() # 1.3
-        # self.mosaic_region() # 1.4
+        # self.re_proj_30m() # 1.3
+        self.mosaic_region() # 1.4
         # self.resample_30m_to_1km() # 1.5
         # self.plot_time_series()
         # self.padding_224()
@@ -1020,18 +1020,20 @@ class Preprocess_HLS_annual_mean:
         tile_list = Download().get_tiles_from_geojson(geojson_fpath)
         # print(tile_list)
         # exit()
-        fdir = join(self.data_dir,'1.3_reproj_30m')
-        outdir = join(self.data_dir,'1.4_mosaic')
-        T.mkdir(outdir,force=True)
-        outf = join(outdir,f'{self.region}_6_bands.tif')
-        flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
-        print(f'mosaic {self.region}')
-        RasterIO_Func().mosaic_tifs(flist,outf,bigtiff='YES')
-        print(f'mosaic {self.region} done')
-        print('building pyramid')
-        RasterIO_Func().build_pyramid(outf)
-        print('building pyramid done')
-        pass
+        for year in self.year_list:
+            print(year)
+            fdir = join(self.data_dir,'1.3_reproj_30m',year)
+            outdir = join(self.data_dir,'1.4_mosaic',year)
+            T.mkdir(outdir,force=True)
+            outf = join(outdir,f'{self.region}_6_bands.tif')
+            flist = [join(fdir,f'{tile}.tif') for tile in tile_list]
+            print(f'mosaic {self.region}')
+            RasterIO_Func().mosaic_tifs(flist,outf,bigtiff='YES')
+            print(f'mosaic {self.region} done')
+            print('building pyramid')
+            RasterIO_Func().build_pyramid(outf)
+            print('building pyramid done')
+            pass
 
 
     def get_WKT(self,fpath):
