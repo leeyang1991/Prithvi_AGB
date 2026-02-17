@@ -175,6 +175,78 @@ def init_datamodule_predict_30m():
     )
     return datamodule
 
+def init_datamodule_predict_30m_annual(year):
+    dataset_path = Path(join(data_root,'Patch','GenPatch_annual/HLS',study_region))
+    # print(dataset_path)
+    # exit()
+    mean_list = [
+        825.24659149375,
+        1231.3631961714,
+        1650.8159245841,
+        2083.3935002574,
+        2436.1648248585,
+        2382.7427756817,
+
+        1157.8291703998,
+        0.12216294396684,
+        # -0.30665385143926,
+        # -0.063655500216475,
+        # -0.24058237596646,
+    ]
+    # means = np.array(means) / 10000.
+    # means_list = means.tolist()
+
+    std_list = [
+        342.58167149983,
+        477.84401449323,
+        690.74405876813,
+        675.46135607273,
+        718.85184127768,
+        715.14464568787,
+
+        690.89240572151,
+        0.1549335487372,
+        # 0.14398646446124,
+        # 0.083608689893597,
+        # 0.1137088480004,
+    ]
+    # stds = np.array(stds) / 10000.
+    # stds_list = stds.tolist()
+
+    datamodule = terratorch.datamodules.GenericNonGeoPixelwiseRegressionDataModule(
+        batch_size=2,
+        num_workers=1,
+        # num_classes=6,
+        check_stackability=False,
+        # Define dataset paths
+        train_data_root=dataset_path / '30m' /year ,
+        train_label_data_root=dataset_path / '30m'/year,
+        val_data_root=dataset_path / '30m'/year,
+        val_label_data_root=dataset_path / '30m'/year,
+        test_data_root=dataset_path / '30m'/year,
+        test_label_data_root=dataset_path / '30m'/year,
+
+        img_grep='*.tif',
+        label_grep='*.tif',
+
+        train_transform=[
+            albumentations.D4(),  # Random flips and rotation
+            albumentations.pytorch.transforms.ToTensorV2(),
+        ],
+        val_transform=None,  # Using ToTensor() by default
+        test_transform=None,
+
+        # Define standardization values
+        means=mean_list,
+        stds=std_list,
+        dataset_bands=global_band_list_8,
+        output_bands=global_band_list_8,
+        rgb_indices=[2, 1, 0],
+        no_data_replace=0,
+        no_label_replace=-1,
+    )
+    return datamodule
+
 @TERRATORCH_DECODER_REGISTRY.register
 class UNetDecoder1(nn.Module):
     """UNetDecoder. Wrapper around UNetDecoder from segmentation_models_pytorch to avoid ignoring the first layer."""
@@ -326,6 +398,50 @@ def predict_agb(ckpt_path):
     with torch.no_grad():
         # batch = next(iter(test_loader))
         for batch in tqdm(test_loader):
+            batch = datamodule.aug(batch)
+            # print(batch["image"])
+            # exit()
+            images = batch["image"].to(model.device)
+
+            masks = batch["mask"].numpy()
+            filename_list = batch['filename']
+            preds = model(images).output
+            # print(batch.keys())
+
+            for i in range(len(preds)):
+                preds_image = preds[i].cpu().numpy()
+                patch_filename = filename_list[i]
+                # if 'patch_0084' in patch_filename:
+                #     print(preds_image)
+                #     pause()
+                save_pred_image(preds_image, patch_filename,outdir)
+            # exit()
+
+def predict_agb_annual(ckpt_path,year:str):
+    outdir = join(this_script_root,'predict_agb_annual',study_region,'30m',year)
+    T.mkdir(outdir,force=True)
+    for f in tqdm(T.listdir(outdir),desc='removing old files'):
+        fpath = join(outdir,f)
+        os.remove(fpath)
+    model_init = init_model()
+    datamodule = init_datamodule_predict_30m_annual(year)
+    datamodule.setup("test")
+    test_dataset = datamodule.test_dataset
+    # print(len(test_dataset));exit()
+    # let's run the model on the test set
+    # trainer.test(model, datamodule=datamodule, ckpt_path=ckpt_path)
+
+    # now we can use the model for predictions and plotting!
+    model = terratorch.tasks.PixelwiseRegressionTask.load_from_checkpoint(
+        ckpt_path,
+        model_factory=model_init.hparams.model_factory,
+        model_args=model_init.hparams.model_args,
+    )
+
+    test_loader = datamodule.test_dataloader()
+    with torch.no_grad():
+        # batch = next(iter(test_loader))
+        for batch in tqdm(test_loader,desc='year'):
             batch = datamodule.aug(batch)
             # print(batch["image"])
             # exit()
@@ -662,11 +778,12 @@ def benchmark():
     plt.show()
 
 def main():
-    train_agb()
-    # ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=99.ckpt')
+    # train_agb()
+    ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=99.ckpt')
     # print(ckpt_path)
     # check_performance(ckpt_path)
     # predict_agb(ckpt_path)
+    predict_agb_annual(ckpt_path,'2019')
     # mosaic_spatial_tifs_overlap()
     # split_odd_and_even()
     # resample_30_to_1km()
