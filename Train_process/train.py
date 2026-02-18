@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from __global__ import *
 import os
 # print(os.getcwd())
@@ -441,7 +444,7 @@ def predict_agb_annual(ckpt_path,year:str):
     test_loader = datamodule.test_dataloader()
     with torch.no_grad():
         # batch = next(iter(test_loader))
-        for batch in tqdm(test_loader,desc='year'):
+        for batch in tqdm(test_loader,desc=year):
             batch = datamodule.aug(batch)
             # print(batch["image"])
             # exit()
@@ -670,6 +673,109 @@ def mosaic_spatial_tifs_overlap():
     out_ds = None
     print('done')
 
+@Decorator.shutup_gdal
+def mosaic_spatial_tifs_overlap_annual(year:str):
+    # patch_size = 224
+    # stride = 112
+    # patch_size = 112
+    # stride = 56
+    # patch_size = 448
+    # stride = 224
+    # patch_size = 896
+    # stride = 448
+    patch_size = 1792
+    stride = 896
+
+    nodata_value = global_nodata_value
+    dstSRS = global_gedi_WKT()
+    # fdir = join(results_root,'agb_pred','patch_30m')
+    fdir = join(this_script_root,'predict_agb_annual',study_region,'30m/',year)
+    outdir = join(this_script_root,'predict_agb_annual',study_region,'mosaic')
+    outf = join(outdir,f'{year}_agb_30m_8_bands_1792.tif')
+
+    T.mkdir(outdir)
+    fpath_list = []
+    for f in T.listdir(fdir):
+        fpath_list.append(join(fdir,f))
+    # print(fpath_list)
+    # exit()
+
+    ref_ds = gdal.Open(fpath_list[0])
+    gt = ref_ds.GetGeoTransform()
+    xres = gt[1]
+    yres = gt[5]
+    tiles_info = []
+
+    for path in tqdm(fpath_list,desc='loading data'):
+        ds = gdal.Open(path)
+        gt_i = ds.GetGeoTransform()
+        x_min = gt_i[0]
+        y_max = gt_i[3]
+        x_max = x_min + ds.RasterXSize * gt_i[1]
+        y_min = y_max + ds.RasterYSize * gt_i[5]
+        tiles_info.append((path, x_min, x_max, y_min, y_max))
+
+    x_mins = [i[1] for i in tiles_info]
+    x_maxs = [i[2] for i in tiles_info]
+    y_mins = [i[3] for i in tiles_info]
+    y_maxs = [i[4] for i in tiles_info]
+
+    x_min_all, x_max_all = min(x_mins), max(x_maxs)
+    y_min_all, y_max_all = min(y_mins), max(y_maxs)
+
+
+    cols = int((x_max_all - x_min_all) / xres)
+    rows = int((y_max_all - y_min_all) / abs(yres))
+    # print(cols, rows)
+    # exit()
+    AGB_sum = np.ones((rows, cols), dtype=np.float32)
+    AGB_weight = np.zeros((rows, cols), dtype=np.float32)
+    # nodata = nodata_value
+
+    w = np.hanning(patch_size)
+    weight2d = np.outer(w, w)
+    weight2d /= weight2d.max()
+
+
+    for path, xmin, xmax, ymin, ymax in tqdm(tiles_info,desc='mosaic'):
+        ds = gdal.Open(path)
+        data = ds.ReadAsArray().astype(np.float32)
+        # data[data<-9999] = 0
+        gt_i = ds.GetGeoTransform()
+
+        # tile 在 mosaic 中的起始、结束行列号
+        x_off = int((xmin - x_min_all) / xres)
+        y_off = int((y_max_all - ymax) / abs(yres))
+        h, w = ds.RasterYSize, ds.RasterXSize
+        data[np.isnan(data)] = 0
+        data = data * weight2d
+
+        AGB_sum[y_off:y_off + h, x_off:x_off + w] += data
+        AGB_weight[y_off:y_off + h, x_off:x_off + w] += weight2d
+
+    AGB_map = AGB_sum / np.maximum(AGB_weight, 1e-6)
+    AGB_map = AGB_map[stride:-stride, stride:-stride]
+
+    print('writing...')
+    driver = gdal.GetDriverByName('GTiff')
+    cols_new = cols
+    out_ds = driver.Create(outf, AGB_map.shape[1], AGB_map.shape[0], 1, gdal.GDT_Float32,
+                           options=['COMPRESS=LZW', 'BIGTIFF=YES'])
+    # out_gt = (x_min_all, xres, 0, y_max_all, 0, yres)
+    out_gt = (x_min_all + stride * xres, xres, 0, y_max_all + stride * yres, 0, yres)
+    out_ds.SetGeoTransform(out_gt)
+    out_ds.SetProjection(dstSRS)
+
+    out_band = out_ds.GetRasterBand(1)
+    out_band.WriteArray(AGB_map)
+    out_band.SetNoDataValue(nodata_value)
+    out_band.FlushCache()
+
+    out_ds = None
+    print('building pyriamid')
+    RasterIO_Func().build_pyramid(outf,bigtiff='Yes')
+    print('done')
+
 def split_odd_and_even():
     import shutil
     fdir = join(this_script_root, 'agb_pred', study_region, '30m/')
@@ -779,12 +885,17 @@ def benchmark():
 
 def main():
     # train_agb()
-    ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=99.ckpt')
+    # ckpt_path = join(this_script_root,f'trainer/AZ/checkpoints/best-epoch=99.ckpt')
     # print(ckpt_path)
     # check_performance(ckpt_path)
     # predict_agb(ckpt_path)
-    predict_agb_annual(ckpt_path,'2019')
     # mosaic_spatial_tifs_overlap()
+
+    # year_list = ['2020','2021','2022','2023']
+    # for year in year_list:
+    #     print(year)
+    #     predict_agb_annual(ckpt_path,year)
+    #     mosaic_spatial_tifs_overlap_annual(year)
     # split_odd_and_even()
     # resample_30_to_1km()
     # benchmark()
