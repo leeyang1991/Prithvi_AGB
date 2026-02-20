@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 from utils import *
 
@@ -90,9 +91,58 @@ class Temporal_statistic:
             data[~mask] = np.nan
             RasterIO_Func().write_tif(data, join(outdir,f), profile)
 
+class Spatial_statistic:
+
+    def __init__(self):
+        self.this_class_arr, self.this_class_tif, self.this_class_png = (
+            T.mk_class_dir('Spatial_statistic', this_script_root, mode=2))
+        pass
+
+    def run(self):
+        self.cal_anomaly()
+        # self.build_pyramid_spatial_anomaly()
+        pass
+
+    def cal_anomaly(self):
+        fdir = join(results_root,'statistic/Temporal_statistic/tif/mask_invalid_agb_values')
+        outdir = join(self.this_class_tif,'spatial_anomaly')
+        T.mkdir(outdir,force=True)
+        data_dict = {}
+        for f in tqdm(T.listdir(fdir)):
+            if not f.endswith('.tif'):
+                continue
+            year = f[:4]
+            fpath = join(fdir,f)
+            data,profile = RasterIO_Func().read_tif(fpath)
+            # print(data.shape)
+            profile['blockxsize'] = 432
+            profile['blockysize'] = 432
+            data_dict[year] = data
+        data3d = []
+        for year in data_dict:
+            data3d.append(data_dict[year])
+        data3d = np.stack(data3d,axis=0)
+        # print(data3d.shape)
+        data3d_mean = np.nanmean(data3d,axis=0)
+        for year in tqdm(data_dict):
+            data = data_dict[year]
+            anomaly = data - data3d_mean
+            outf = join(outdir,f'{year}_anomaly.tif')
+            RasterIO_Func().write_tif(anomaly,outf,profile)
+            RasterIO_Func().build_pyramid(outf)
+
+    def build_pyramid_spatial_anomaly(self):
+        fdir = join(self.this_class_tif,'spatial_anomaly')
+        for f in tqdm(T.listdir(fdir)):
+            fpath = join(fdir,f)
+            data,profile = RasterIO_Func().read_tif(fpath)
+            pprint(profile)
+            exit()
+            RasterIO_Func().build_pyramid(fpath,bigtiff='YES')
 
 def main():
-    Temporal_statistic().run()
+    # Temporal_statistic().run()
+    Spatial_statistic().run()
 
     pass
 
