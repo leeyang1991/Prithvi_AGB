@@ -25,10 +25,10 @@ elif 'Yang-M4Pro.local' in computer_name:
     # this_root = '/Volumes/SSD4T/Prithvi_AGB/'
     this_root = '/Volumes/NVME2T/Prithvi_AGB'
     matplotlib.use('TkAgg')
-# elif 'yangligeo' in computer_name:
-#     # yangligeo VPS
-#     print('Platform: yangligeo')
-#     this_root = '/root/GPP_ML/'
+elif 'hpc.uconn' in computer_name:
+    # UCONN HPC
+    print('Platform: UCONN HPC')
+    this_root = '/home/ygo26002/Project_data/Prithvi_AGB'
 else:
     print('computer_name:',computer_name)
     raise ValueError('computer_name not recognized')

@@ -41,10 +41,10 @@ class Download:
         pass
 
     def run(self):
-        # self.kml_to_shp()
-        self.gen_urls()
+        self.kml_to_shp()
+        # self.gen_urls()
         # self.download()
-        self.check_download()
+        # self.check_download()
         # self.move_tile_to_different_folder()
         # self.delete_empty_folders()
         pass
@@ -56,12 +56,14 @@ class Download:
         import geopandas as gpd
         import shapely
         from shapely import wkt
-        kml_fpath = join(data_root, 'global_tiles_HLS',
+        kml_fpath = join(data_root, 'global_tiles_HLS','kml',
                          'S2A_OPER_GIP_TILPAR_MPC__20151209T095117_V20150622T000000_21000101T000000_B00.kml')
-        outf = join(data_root, 'global_tiles_HLS', 'HLS_tiles.shp')
+        outf = join(data_root, 'global_tiles_HLS', 'shp','HLS_tiles.shp')
         print(isfile(kml_fpath))
         gdf = gpd.read_file(kml_fpath, driver="KML")
-        gdf.drop(columns=['Description'], inplace=True)
+        # print(gdf.columns)
+        # exit()
+        gdf.drop(columns=['description'], inplace=True)
 
         geometry_list = []
         for i, row in tqdm(gdf.iterrows(), total=len(gdf)):
@@ -2048,9 +2050,9 @@ class RasterIO_Func:
 
 
 def main():
-    # Download().run()
+    Download().run()
     # Preprocess_HLS().run()
-    Preprocess_HLS_annual_mean().run()
+    # Preprocess_HLS_annual_mean().run()
     # Download_From_GEE_1km().run()
     pass
 
