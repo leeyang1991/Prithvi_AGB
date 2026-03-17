@@ -11,22 +11,23 @@ from rasterio.mask import mask
 from rasterio.merge import merge
 from rasterio.io import MemoryFile
 from rasterio.warp import calculate_default_transform, reproject, Resampling
-
 import geopandas as gpd
 from __init__ import *
+from HPC_func import *
 
 from __global__ import *
 import rasterio
 import geopandas as gp
 import earthaccess
-# import ee
+import ee
 import urllib3
 from pathlib import Path
 
 # ee.Authenticate()
 # exit()
-from lytools import *
-T = Tools()
+# from lytools import *
+from utils import *
+T = Tools_Extend()
 # exit()
 this_script_root = join(data_root,'HLS')
 
@@ -36,14 +37,15 @@ class Download:
         # self.data_dir = '/data/home/wenzhang/Yang/HLS/'
         self.data_dir = join(this_script_root,'Download')
         self.get_account_passwd()
-        self.geojson_fpath = join(data_root,'global_tiles_HLS','AZ.geojson')
+        self.geojson_fpath = join(data_root,'global_tiles_HLS','geojson/AZ.geojson')
 
         pass
 
     def run(self):
-        self.kml_to_shp()
+        # self.kml_to_shp()
         # self.gen_urls()
         # self.download()
+        self.check_download_number()
         # self.check_download()
         # self.move_tile_to_different_folder()
         # self.delete_empty_folders()
@@ -165,7 +167,7 @@ class Download:
 
     def download(self):
         outdir = join(self.data_dir,'tiles')
-    #
+        log_folder = join(self.data_dir,'download_log')
         selected_bands = [
             'B02',
             'B03',
@@ -196,7 +198,17 @@ class Download:
             # T.mkdir(outdir_i)
             # outf = join(outdir_i,url.split('/')[-1])
             # self.kernel_download([url,session,outdir])
-        MULTIPROCESS(self.kernel_download,params_list).run(process=10, process_or_thread='t')
+        # MULTIPROCESS(self.kernel_download,params_list).run(process=10, process_or_thread='t')
+        print('total param len:', len(params_list))
+        # sumbit_jobs_array(self.kernel_download,params_list,log_folder,job_name='hls_download',
+        #                 job_number_limit=10,
+        #                 parallel_process_per_task=10,
+        #                 slurm_array_parallelism=10,
+        #                 parallel_process_p_or_t='t',
+        #                 cpus_per_task=1,
+        #                 mem_gb=1,
+        #                 timeout_min=100,
+        #                 slurm_partition="general")
 
     def kernel_download(self,params):
         url,session,outdir = params
@@ -224,13 +236,13 @@ class Download:
             ok = self.check_download_single_file(outf)
             if ok:
                 if fail_time > 0:
-                    print(f'download successful after {fail_time} times trials')
+                    print(f'download successful after {fail_time} times fails')
                 fail_time = 0
                 break
             else:
                 fail_time += 1
                 if fail_time > 10:
-                    print('download failed after 10 times trials')
+                    print('download failed after 10 times fails')
                 os.remove(outf)
                 sleep(10)
                 try:
@@ -247,6 +259,19 @@ class Download:
         for chunk in r.iter_content(chunk_size=8192):
             fw.write(chunk)
         fw.close()
+        pass
+
+    def check_download_number(self):
+        fdir = join(self.data_dir,'tiles')
+        total_num = 274078
+        num = 0
+        for tile in tqdm(T.listdir(fdir)):
+            for folder in T.listdir(join(fdir,tile)):
+                for f in T.listdir(join(fdir,tile,folder)):
+                    # print(f)
+                    # exit()
+                    num += 1
+        print(num,total_num, f'percentage: {num/total_num*100:.2f}%')
         pass
 
     def check_download(self):

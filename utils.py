@@ -6,6 +6,46 @@ from shapely.geometry import mapping
 from rasterio.mask import mask
 from pprint import pprint
 
+
+class Tools_Extend(Tools):
+
+    def split_list(self,lst, n):
+        '''
+        把 lst 每 n 个元素分成一组，返回一个列表，最后一组可能不足 n 个元素
+        '''
+        return [lst[i:i + n] for i in range(0, len(lst), n)]
+
+    def split_into_n_jobs(self,lst, n_jobs):
+        """
+        把 lst 平均分成 n_jobs 份
+        """
+        total = len(lst)
+        chunk_size = total // n_jobs
+        remainder = total % n_jobs
+
+        chunks = []
+        start = 0
+
+        for i in range(n_jobs):
+            # 前 remainder 个 job 多分一个
+            extra = 1 if i < remainder else 0
+            end = start + chunk_size + extra
+            chunks.append(lst[start:end])
+            start = end
+        return chunks
+
+    def multi_process(self,func, params_list, njobs=30,process_or_thread='p'):
+        if process_or_thread == 'p':
+            P = multiprocessing.Pool(njobs)
+            results = P.map(func, params_list)
+        elif process_or_thread == 't':
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=njobs) as executor:
+                results = list(executor.map(func, params_list))
+        else:
+            raise ValueError("process_or_thread must be 'p' for multiprocessing or 't' for threading")
+
+
 class RasterIO_Func_Extend(RasterIO_Func):
     # todo: add to lytools
 
