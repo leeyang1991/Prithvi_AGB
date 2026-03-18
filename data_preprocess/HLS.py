@@ -214,59 +214,72 @@ class Download:
         self.job_name = 'hls_download'
         init_job(self.job_name,params_list)
         sumbit_jobs_array(self.kernel_download,params_list,log_folder,job_name=self.job_name,
-                        job_number_limit=20,
+                        job_number_limit=1,
                         parallel_process_per_task=10,
                         slurm_array_parallelism=10,
-                        parallel_process_p_or_t='t',
-                        cpus_per_task=1,
-                        mem_gb=1,
-                        timeout_min=100,
-                        slurm_partition="general")
+                        parallel_process_p_or_t='p',
+                        cpus_per_task=10,
+                        mem_gb=4,
+                        timeout_min=10,
+                        # slurm_partition="general",
+                        slurm_partition="debug",
+                        exclude_nodes="cn[498]",
+                          )
+
+    def kernel_test(self,params):
+        for i in range(30000000):
+            a = 1+1
+        update_i(self.job_name,1)
+        pass
 
     def kernel_download(self,params):
         # sleep(1)
-        url,session,outdir = params
-
-        outdir_i = join(outdir,url.split('/')[-2])
-        try:
-            T.mkdir(outdir_i,force=True)
-        except:
-            pass
-        outf = join(outdir_i,url.split('/')[-1])
-        if isfile(outf):
-            if self.check_download_single_file(outf):
-                return
-            else:
-                print(f'download error, removing {outf}')
-                os.remove(outf)
-        try:
-            self.download_i(outf,session,url)
-        except Exception as e:
-            print('error')
-            print(e)
-            print('--------')
-
-        fail_time = 0
-        while 1:
-            ok = self.check_download_single_file(outf)
-            if ok:
-                if fail_time > 0:
-                    print(f'download successful after {fail_time} times fails')
-                fail_time = 0
-                break
-            else:
-                fail_time += 1
-                if fail_time > 10:
-                    print('download failed after 10 times fails')
-                os.remove(outf)
-                sleep(10)
-                try:
-                    self.download_i(outf, session, url)
-                except Exception as e:
-                    print(f'error times {fail_time}: {url}')
-                    print(e)
-                    print('--------')
-        update_i(self.job_name)
+        with ProcessPoolExecutor(max_workers=10) as P:
+            list(P.map(self.kernel_test, params))
+        pass
+        # url,session,outdir = params
+        #
+        # outdir_i = join(outdir,url.split('/')[-2])
+        # try:
+        #     T.mkdir(outdir_i,force=True)
+        # except:
+        #     pass
+        # outf = join(outdir_i,url.split('/')[-1])
+        # if isfile(outf):
+        #     if self.check_download_single_file(outf):
+        #         # update_i(self.job_name)
+        #         return
+        #     else:
+        #         print(f'download error, removing {outf}')
+        #         os.remove(outf)
+        # try:
+        #     self.download_i(outf,session,url)
+        # except Exception as e:
+        #     print('error')
+        #     print(e)
+        #     print('--------')
+        #
+        # fail_time = 0
+        # while 1:
+        #     ok = self.check_download_single_file(outf)
+        #     if ok:
+        #         if fail_time > 0:
+        #             print(f'download successful after {fail_time} times fails')
+        #         fail_time = 0
+        #         break
+        #     else:
+        #         fail_time += 1
+        #         if fail_time > 10:
+        #             print('download failed after 10 times fails')
+        #         os.remove(outf)
+        #         sleep(10)
+        #         try:
+        #             self.download_i(outf, session, url)
+        #         except Exception as e:
+        #             print(f'error times {fail_time}: {url}')
+        #             print(e)
+        #             print('--------')
+        # # update_i(self.job_name)
 
 
     def download_i(self,outf,session,url):

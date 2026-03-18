@@ -2,7 +2,10 @@ import submitit
 from utils import *
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 import redis
+from threading import Lock
+
 from rich.progress import (
     Progress,
     BarColumn,
@@ -17,11 +20,11 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
     TimeElapsedColumn,
+    TransferSpeedColumn,
+    TaskProgressColumn,
 )
 
 T = Tools_Extend()
-
-
 
 
 def sumbit_jobs_array(func,params_list,log_folder,job_name,
@@ -33,22 +36,31 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
                         mem_gb=1,
                         timeout_min=5,
                         slurm_partition="general",
+                        exclude_nodes=None,
                       ):
     if len(params_list) == 0:
         raise ValueError("params_list is empty")
     if len(params_list) > job_number_limit:
         super_params_list = T.split_into_n_jobs(params_list,job_number_limit)
-
-        def super_func(chunk):
-            def wrapper(p):
-                return func(p)
-
-            if parallel_process_p_or_t == 'p':
-                with multiprocessing.Pool(parallel_process_per_task) as P:
-                    P.map(wrapper, chunk)
-            elif parallel_process_p_or_t == 't':
+        if parallel_process_p_or_t == 't':
+            def super_func(chunk):
+                def wrapper(p):
+                    return func(p)
                 with ThreadPoolExecutor(max_workers=parallel_process_per_task) as Thread_:
                     list(Thread_.map(wrapper, chunk))
+
+        elif parallel_process_p_or_t == 'p':
+            def super_func(chunk):
+                for p in chunk:
+                    func(p)
+                # def wrapper(p):
+                #     return func(p)
+                # ctx = multiprocessing.get_context("fork")
+                # with ProcessPoolExecutor(max_workers=parallel_process_per_task, mp_context=ctx) as P:
+                #     list(P.map(wrapper, chunk))
+            pass
+        else:
+            raise ValueError("parallel_process_p_or_t must be 'p' for multiprocessing or 't' for threading")
 
         final_params_list = super_params_list
         final_func = super_func
@@ -60,7 +72,7 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
         shutil.rmtree(log_folder)
     T.mkdir(log_folder, force=True)
 
-    # print('submiting...')
+    print('submiting...')
     # exit()
     executor = submitit.AutoExecutor(folder=log_folder)
     executor.update_parameters(
@@ -70,11 +82,82 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
         timeout_min=timeout_min,
         slurm_array_parallelism=slurm_array_parallelism,
         slurm_partition=slurm_partition,
+        exclude=exclude_nodes,
     )
     jobs = executor.map_array(final_func, final_params_list)
     print('total param len:', len(params_list))
     print('len(jobs):', len(final_params_list))
     print('jobid,',jobs[0].job_id)
+
+def _worker_func(args):
+    func, p = args
+    return func(p)
+
+def _run_chunk(args):
+    func, chunk, mode, n_workers = args
+
+    if mode == 'p':
+        # ⚠️ multiprocessing 必须 spawn
+        ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as P:
+            list(P.map(_worker_func, [(func, p) for p in chunk]))
+
+    elif mode == 't':
+        with ThreadPoolExecutor(max_workers=n_workers) as T_:
+            list(T_.map(_worker_func, [(func, p) for p in chunk]))
+
+
+def sumbit_jobs_array2(func, params_list, log_folder, job_name,
+                     job_number_limit=500,
+                     parallel_process_per_task=10,
+                     slurm_array_parallelism=20,
+                     parallel_process_p_or_t='p',
+                     cpus_per_task=1,
+                     mem_gb=1,
+                     timeout_min=5,
+                     slurm_partition="general",
+                     exclude_nodes=None):
+
+    if len(params_list) == 0:
+        raise ValueError("params_list is empty")
+
+    if len(params_list) > job_number_limit:
+        super_params_list = T.split_into_n_jobs(params_list, job_number_limit)
+
+        final_params_list = [
+            (func, chunk, parallel_process_p_or_t, parallel_process_per_task)
+            for chunk in super_params_list
+        ]
+        final_func = _run_chunk
+
+    else:
+        final_params_list = [(func, p) for p in params_list]
+        final_func = _worker_func
+
+    if os.path.exists(log_folder):
+        shutil.rmtree(log_folder)
+    T.mkdir(log_folder, force=True)
+
+    print('submitting...')
+
+    executor = submitit.AutoExecutor(folder=log_folder)
+    executor.update_parameters(
+        slurm_job_name=job_name,
+        cpus_per_task=cpus_per_task,
+        mem_gb=mem_gb,
+        timeout_min=timeout_min,
+        slurm_array_parallelism=slurm_array_parallelism,
+        slurm_partition=slurm_partition,
+        exclude=exclude_nodes,
+    )
+
+    jobs = executor.map_array(final_func, final_params_list)
+
+    print('total param len:', len(params_list))
+    print('len(jobs):', len(final_params_list))
+    print('jobid:', jobs[0].job_id)
+
+
 
 
 def monitoring_job(progress_dir_json):
@@ -198,6 +281,81 @@ class HPC_redis:
             print(self.r.hgetall(job_name))
             sleep(1)
 
+class Check_logs:
+    def __init__(self,log_folder):
+        self.log_folder = log_folder
+        pass
+
+    def read_err_files(self):
+        log_folder = self.log_folder
+        log_folder = Path(log_folder)
+        err_count = 0
+        for f in T.listdir(log_folder):
+            if not f.endswith(".err"):
+                continue
+            fpath = log_folder / f
+            # print(fpath)
+            with open(fpath) as fr:
+                err_content = fr.read()
+                if len(err_content) != 0:
+                    print('==============')
+                    print(f"Error in file: {f}")
+                    print(err_content)
+                    err_count += 1
+        print('#################')
+        print(f'Total error logs: {err_count}')
+        print('#################')
+        pass
+
+    def read_out_files(self):
+        log_folder = self.log_folder
+        log_folder = Path(log_folder)
+        count = 0
+        for f in T.listdir(log_folder):
+            if not f.endswith(".out"):
+                continue
+            fpath = log_folder / f
+            # print(fpath)
+            with open(fpath) as fr:
+                log_content = fr.read()
+                print(log_content)
+                print('------------')
+                count += 1
+        print(f'Total files: {count}')
+        pass
+
+    def read_result_files(self):
+        log_folder = self.log_folder
+        log_folder = Path(log_folder)
+        count = 0
+        for f in T.listdir(log_folder):
+            if not f.endswith("_result.pkl"):
+                continue
+            fpath = log_folder / f
+            # print(fpath)
+            content = pickle.load(open(fpath, 'rb'))
+            print(content)
+            print('------------')
+            count += 1
+        print(f'Total files: {count}')
+        pass
+
+    def read_submit_files(self):
+        log_folder = self.log_folder
+        log_folder = Path(log_folder)
+        count = 0
+        for f in T.listdir(log_folder):
+            if not f.endswith("_submitted.pkl"):
+                continue
+            fpath = log_folder / f
+            # print(fpath)
+            content = pickle.load(open(fpath, 'rb'))
+            print(content)
+            print('------------')
+            count += 1
+        print(f'Total files: {count}')
+        pass
+
 
 def init_job(job_name,param_list):
     total_job = len(param_list)
@@ -207,9 +365,40 @@ def init_job(job_name,param_list):
     r.hset(job_name, 'step', str(0))
 
 
-def update_i(job_name):
-    r = HPC_redis().conn_redis()
-    r.hincrby(job_name, 'step', amount=1)
+_REDIS = None
+
+def get_redis():
+    global _REDIS
+    if _REDIS is None:
+        _REDIS = HPC_redis().conn_redis()
+    return _REDIS
+
+_LOCK = Lock()
+_LOCAL_COUNTER = 0
+
+def update_i(job_name, batch_size=100):
+    global _LOCAL_COUNTER
+
+    with _LOCK:
+        _LOCAL_COUNTER += 1
+
+        if _LOCAL_COUNTER >= batch_size:
+            r = get_redis()
+            r.hincrby(job_name, "step", _LOCAL_COUNTER)
+            _LOCAL_COUNTER = 0
+
+def flush_progress(job_name):
+    global _LOCAL_COUNTER
+
+    if _LOCAL_COUNTER > 0:
+        r = get_redis()
+        r.hincrby(job_name, "step", _LOCAL_COUNTER)
+        _LOCAL_COUNTER = 0
+
+
+def update_progress(job_name, batch_size=100):
+    update_i(job_name, batch_size)
+    flush_progress(job_name)
 
 def progress_bar_monitoring(job_name):
     hpc_redis = HPC_redis()
@@ -218,12 +407,16 @@ def progress_bar_monitoring(job_name):
     step = info.get(b'step')
     total_int = int(total)
     step_int = int(step)
+    # print(info)
+    # exit()
     with Progress(
-            TextColumn("[bold yellow]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total} {task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
+        TextColumn("[bold yellow]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total} {task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        # show_speed=True,
     ) as progress:
         task = progress.add_task(f"[bold green]{job_name}", total=total_int)
         while True:
@@ -238,8 +431,14 @@ def progress_bar_monitoring(job_name):
 
 
 def main():
+    # monitoring
     job_name = 'hls_download'
     progress_bar_monitoring(job_name)
+
+    # check log
+    # log_folder = "/home/ygo26002/Project_data/Prithvi_AGB/data/HLS/Download/download_log"
+    # Check_logs(log_folder).read_err_files()
+    # Check_logs(log_folder).read_out_files()
 
 if __name__ == '__main__':
     main()
