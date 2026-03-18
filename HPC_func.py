@@ -2,6 +2,14 @@ import submitit
 from utils import *
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+import redis
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+)
 
 from rich.progress import (
     Progress,
@@ -14,15 +22,6 @@ from rich.progress import (
 T = Tools_Extend()
 
 
-def sumbit_jobs_array_with_pbar(params_list):
-    if os.path.exists(log_folder):
-        shutil.rmtree(log_folder)
-    if os.path.exists(progress_dir_json):
-        shutil.rmtree(progress_dir_json)
-    T.mkdir(progress_dir_json, force=True)
-
-    print('submiting...')
-    pass
 
 
 def sumbit_jobs_array(func,params_list,log_folder,job_name,
@@ -160,3 +159,87 @@ def monitoring_job(progress_dir_json):
                 time.sleep(refresh_interval)
     pass
 
+class HPC_redis:
+
+    def __init__(self):
+        self.r = self.conn_redis()
+        pass
+
+    def conn_redis(self):
+        redis_conf = Path.home() / '.config' / 'redis' / 'redis.conf'
+        with open(redis_conf) as f:
+            redis_conf = f.readlines()
+            host = redis_conf[0].strip()
+            port = int(redis_conf[1].strip())
+            passwd = redis_conf[2].strip()
+
+        r = redis.Redis(
+            host=host,
+            port=port,
+            password=passwd,
+        )
+        # print(f"Connected to Redis at {host}:{port}")
+        return r
+
+    def hit_redis(self,job_name,amount=1):
+        self.r.hincrby(name=job_name,key=job_name,amount=amount)
+
+    def set_total_num(self,job_name,total_job:int):
+        # r.delete(job_name+'_total')
+        # r.hincrby(name=job_name, key=task_name+'_total', amount=total_job)
+        self.r.hset(job_name, 'total', str(total_job))
+
+    def delete_job(self,job_name):
+        self.r.delete(job_name)
+        pass
+
+    def query_redis(self,job_name):
+        while True:
+            print(self.r.hgetall(job_name))
+            sleep(1)
+
+
+def init_job(job_name,param_list):
+    total_job = len(param_list)
+    r = HPC_redis().conn_redis()
+    r.delete(job_name)
+    r.hset(job_name, 'total', str(total_job))
+    r.hset(job_name, 'step', str(0))
+
+
+def update_i(job_name):
+    r = HPC_redis().conn_redis()
+    r.hincrby(job_name, 'step', amount=1)
+
+def progress_bar_monitoring(job_name):
+    hpc_redis = HPC_redis()
+    info=hpc_redis.r.hgetall(job_name)
+    total = info.get(b'total')
+    step = info.get(b'step')
+    total_int = int(total)
+    step_int = int(step)
+    with Progress(
+            TextColumn("[bold yellow]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total} {task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+    ) as progress:
+        task = progress.add_task(f"[bold green]{job_name}", total=total_int)
+        while True:
+            info = hpc_redis.r.hgetall(job_name)
+            # print(info)
+            step = info.get(b'step')
+            step_int = int(step)
+            progress.update(task, completed=step_int)
+            if step_int >= total_int:
+                break
+            time.sleep(1)
+
+
+def main():
+    job_name = 'hls_download'
+    progress_bar_monitoring(job_name)
+
+if __name__ == '__main__':
+    main()

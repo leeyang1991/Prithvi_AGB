@@ -44,12 +44,20 @@ class Download:
     def run(self):
         # self.kml_to_shp()
         # self.gen_urls()
-        # self.download()
-        self.check_download_number()
+        self.download()
+        # self.check_download_number()
         # self.check_download()
         # self.move_tile_to_different_folder()
         # self.delete_empty_folders()
         pass
+
+    def init_Redis(self,download_job_name,params_list):
+        from HPC_func import HPC_redis
+        self.Redis = HPC_redis()
+        self.Redis.delete_job(download_job_name)
+        self.Redis.set_total_num(download_job_name, total_job=len(params_list))
+        self.download_job_name = download_job_name
+
 
     def kml_to_shp(self):
         # download from:
@@ -198,20 +206,27 @@ class Download:
             # T.mkdir(outdir_i)
             # outf = join(outdir_i,url.split('/')[-1])
             # self.kernel_download([url,session,outdir])
-        # MULTIPROCESS(self.kernel_download,params_list).run(process=10, process_or_thread='t')
         print('total param len:', len(params_list))
-        # sumbit_jobs_array(self.kernel_download,params_list,log_folder,job_name='hls_download',
-        #                 job_number_limit=10,
-        #                 parallel_process_per_task=10,
-        #                 slurm_array_parallelism=10,
-        #                 parallel_process_p_or_t='t',
-        #                 cpus_per_task=1,
-        #                 mem_gb=1,
-        #                 timeout_min=100,
-        #                 slurm_partition="general")
+
+
+        # MULTIPROCESS(self.kernel_download,params_list).run(process=1, process_or_thread='t')
+
+        self.job_name = 'hls_download'
+        init_job(self.job_name,params_list)
+        sumbit_jobs_array(self.kernel_download,params_list,log_folder,job_name=self.job_name,
+                        job_number_limit=20,
+                        parallel_process_per_task=10,
+                        slurm_array_parallelism=10,
+                        parallel_process_p_or_t='t',
+                        cpus_per_task=1,
+                        mem_gb=1,
+                        timeout_min=100,
+                        slurm_partition="general")
 
     def kernel_download(self,params):
+        # sleep(1)
         url,session,outdir = params
+
         outdir_i = join(outdir,url.split('/')[-2])
         try:
             T.mkdir(outdir_i,force=True)
@@ -251,6 +266,8 @@ class Download:
                     print(f'error times {fail_time}: {url}')
                     print(e)
                     print('--------')
+        update_i(self.job_name)
+
 
     def download_i(self,outf,session,url):
         fw = open(outf, 'wb')

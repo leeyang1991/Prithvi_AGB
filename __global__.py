@@ -23,7 +23,8 @@ elif 'Yang-M4Pro.local' in computer_name:
     # this_root = '/Volumes/HDD/GPP_ML/'
     # this_root = '/Volumes/NVME4T/Prithvi_AGB/'
     # this_root = '/Volumes/SSD4T/Prithvi_AGB/'
-    this_root = '/Volumes/NVME2T/Prithvi_AGB'
+    this_root = '/Users/liyang/Projects_data/Prithvi_AGB'
+    # this_root = '/Volumes/NVME2T/Prithvi_AGB'
     matplotlib.use('TkAgg')
 elif 'hpc.uconn' in computer_name:
     # UCONN HPC
@@ -32,10 +33,13 @@ elif 'hpc.uconn' in computer_name:
 else:
     print('computer_name:',computer_name)
     raise ValueError('computer_name not recognized')
-if not os.path.isdir(this_root):
-    raise ValueError(f'working directory not found: {this_root}')
+
 
 print('this_root:', this_root)
+print('computer_name:', computer_name)
+
+if not os.path.isdir(this_root):
+    raise ValueError(f'working directory not found: {this_root}')
 data_root = join(this_root, 'data')
 results_root = join(this_root, 'results')
 temp_root = join(this_root, 'temp')
