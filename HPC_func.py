@@ -1,18 +1,11 @@
 import submitit
 from utils import *
-import shutil
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
 import redis
 from threading import Lock
+from pathos.multiprocessing import ProcessPool
 
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TextColumn,
-    TimeRemainingColumn,
-    TimeElapsedColumn,
-)
+from rich.text import Text
 
 from rich.progress import (
     Progress,
@@ -21,11 +14,26 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn,
     TransferSpeedColumn,
-    TaskProgressColumn,
+    ProgressColumn
 )
 
 T = Tools_Extend()
 
+import time
+
+
+class IterSpeedColumn(ProgressColumn):
+
+    def render(self, task):
+        if task.finished:
+            return Text(f"{task.speed:.2f} it/s", style="green")
+
+        speed = task.speed
+
+        if speed is None:
+            return Text("-- it/s", style="dim")
+
+        return Text(f"{speed:.2f} it/s", style="cyan")
 
 def sumbit_jobs_array(func,params_list,log_folder,job_name,
                         job_number_limit=500,
@@ -38,6 +46,22 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
                         slurm_partition="general",
                         exclude_nodes=None,
                       ):
+    '''
+    :param func: the kernel function to run, should take one argument, e.g. func(params)
+    :param params_list: list of tuples [params1, params2, ...]
+    :param log_folder: slurm log_folder
+    :param job_name: slurm job_name
+    :param job_number_limit: number of total jobs you want to submit to slurm
+    :param parallel_process_per_task: number of parallel processes per task, Recommend equal to :param cpus_per_task
+    :param slurm_array_parallelism: slurm array parallelism
+    :param parallel_process_p_or_t: 'p' for multiprocessing, 't' for multi-threading
+    :param cpus_per_task: number of cpus per task
+    :param mem_gb: memory per task
+    :param timeout_min: timeout in minutes
+    :param slurm_partition: slurm partition
+    :param exclude_nodes: list of nodes to exclude
+    '''
+
     if len(params_list) == 0:
         raise ValueError("params_list is empty")
     if len(params_list) > job_number_limit:
@@ -51,13 +75,13 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
 
         elif parallel_process_p_or_t == 'p':
             def super_func(chunk):
-                for p in chunk:
-                    func(p)
-                # def wrapper(p):
-                #     return func(p)
-                # ctx = multiprocessing.get_context("fork")
-                # with ProcessPoolExecutor(max_workers=parallel_process_per_task, mp_context=ctx) as P:
-                #     list(P.map(wrapper, chunk))
+                # for p in chunk:
+                #     func(p)
+
+                def wrapper(p):
+                    return func(p)
+                pool = ProcessPool(nodes=parallel_process_per_task)
+                pool.map(wrapper, chunk)
             pass
         else:
             raise ValueError("parallel_process_p_or_t must be 'p' for multiprocessing or 't' for threading")
@@ -69,11 +93,11 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
         final_func = func
 
     if os.path.exists(log_folder):
-        shutil.rmtree(log_folder)
+        for f in os.listdir(log_folder):
+            os.remove(os.path.join(log_folder, f))
     T.mkdir(log_folder, force=True)
 
     print('submiting...')
-    # exit()
     executor = submitit.AutoExecutor(folder=log_folder)
     executor.update_parameters(
         slurm_job_name=job_name,
@@ -85,80 +109,29 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
         exclude=exclude_nodes,
     )
     jobs = executor.map_array(final_func, final_params_list)
-    print('total param len:', len(params_list))
-    print('len(jobs):', len(final_params_list))
-    print('jobid,',jobs[0].job_id)
 
-def _worker_func(args):
-    func, p = args
-    return func(p)
-
-def _run_chunk(args):
-    func, chunk, mode, n_workers = args
-
-    if mode == 'p':
-        # ⚠️ multiprocessing 必须 spawn
-        ctx = multiprocessing.get_context("spawn")
-        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as P:
-            list(P.map(_worker_func, [(func, p) for p in chunk]))
-
-    elif mode == 't':
-        with ThreadPoolExecutor(max_workers=n_workers) as T_:
-            list(T_.map(_worker_func, [(func, p) for p in chunk]))
-
-
-def sumbit_jobs_array2(func, params_list, log_folder, job_name,
-                     job_number_limit=500,
-                     parallel_process_per_task=10,
-                     slurm_array_parallelism=20,
-                     parallel_process_p_or_t='p',
-                     cpus_per_task=1,
-                     mem_gb=1,
-                     timeout_min=5,
-                     slurm_partition="general",
-                     exclude_nodes=None):
-
-    if len(params_list) == 0:
-        raise ValueError("params_list is empty")
-
-    if len(params_list) > job_number_limit:
-        super_params_list = T.split_into_n_jobs(params_list, job_number_limit)
-
-        final_params_list = [
-            (func, chunk, parallel_process_p_or_t, parallel_process_per_task)
-            for chunk in super_params_list
-        ]
-        final_func = _run_chunk
-
-    else:
-        final_params_list = [(func, p) for p in params_list]
-        final_func = _worker_func
-
-    if os.path.exists(log_folder):
-        shutil.rmtree(log_folder)
-    T.mkdir(log_folder, force=True)
-
-    print('submitting...')
-
-    executor = submitit.AutoExecutor(folder=log_folder)
-    executor.update_parameters(
-        slurm_job_name=job_name,
-        cpus_per_task=cpus_per_task,
-        mem_gb=mem_gb,
-        timeout_min=timeout_min,
-        slurm_array_parallelism=slurm_array_parallelism,
-        slurm_partition=slurm_partition,
-        exclude=exclude_nodes,
-    )
-
-    jobs = executor.map_array(final_func, final_params_list)
-
-    print('total param len:', len(params_list))
-    print('len(jobs):', len(final_params_list))
-    print('jobid:', jobs[0].job_id)
+    info = {
+        "Total Cores Used": cpus_per_task * slurm_array_parallelism,
+        "Concurrent Processes": parallel_process_per_task * slurm_array_parallelism,
+        "Total Param Length": len(params_list),
+        "Number of Jobs": len(final_params_list),
+        "First Job ID": jobs[0].job_id,
+        "Memory GB":mem_gb,
+        "Time out Minutes For Each Job": timeout_min,
+        "Partition":slurm_partition,
+    }
+    pretty_table_print(info)
 
 
 
+def pretty_table_print(info):
+    max_key_len = max(len(k) for k in info)
+
+    print("\n=== Job Summary ===")
+    for k, v in info.items():
+        print(f"{k + ':':<{max_key_len + 2}} {v}")
+    print("=" * (max_key_len + 15))
+    pass
 
 def monitoring_job(progress_dir_json):
     refresh_interval = 1
@@ -377,6 +350,10 @@ _LOCK = Lock()
 _LOCAL_COUNTER = 0
 
 def update_i(job_name, batch_size=100):
+    '''
+    :param job_name:
+    :param Hitting Redis service every batch_size times to reduce the frequency of hitting
+    '''
     global _LOCAL_COUNTER
 
     with _LOCK:
@@ -407,14 +384,13 @@ def progress_bar_monitoring(job_name):
     step = info.get(b'step')
     total_int = int(total)
     step_int = int(step)
-    # print(info)
     # exit()
     with Progress(
         TextColumn("[bold yellow]{task.description}"),
         BarColumn(),
         TextColumn("{task.completed}/{task.total} {task.percentage:>3.0f}%"),
         TimeElapsedColumn(),
-        TransferSpeedColumn(),
+        IterSpeedColumn(),
         TimeRemainingColumn(),
         # show_speed=True,
     ) as progress:
@@ -432,13 +408,15 @@ def progress_bar_monitoring(job_name):
 
 def main():
     # monitoring
-    job_name = 'hls_download'
-    progress_bar_monitoring(job_name)
+    # job_name = 'hls_download'
+    # progress_bar_monitoring(job_name)
 
     # check log
-    # log_folder = "/home/ygo26002/Project_data/Prithvi_AGB/data/HLS/Download/download_log"
+    # log_folder = join(data_root,'HLS/Download/download_log')
     # Check_logs(log_folder).read_err_files()
     # Check_logs(log_folder).read_out_files()
+
+    pass
 
 if __name__ == '__main__':
     main()
