@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import redis
 from threading import Lock
 from pathos.multiprocessing import ProcessPool
-
+import time
 from rich.text import Text
 
 from rich.progress import (
@@ -13,14 +13,37 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
     TimeElapsedColumn,
-    TransferSpeedColumn,
     ProgressColumn
 )
 
 T = Tools_Extend()
 
-import time
 
+_REDIS = None
+
+def get_redis():
+    global _REDIS
+    if _REDIS is None:
+        _REDIS = HPC_redis().conn_redis()
+    return _REDIS
+
+_LOCK = Lock()
+_LOCAL_COUNTER = 0
+
+def update_i(job_name, batch_size=100):
+    '''
+    :param job_name:
+    :param Hitting Redis service every batch_size times to reduce the frequency of hitting
+    '''
+    global _LOCAL_COUNTER
+
+    with _LOCK:
+        _LOCAL_COUNTER += 1
+
+        if _LOCAL_COUNTER >= batch_size:
+            r = get_redis()
+            r.hincrby(job_name, "step", _LOCAL_COUNTER)
+            _LOCAL_COUNTER = 0
 
 class IterSpeedColumn(ProgressColumn):
 
@@ -45,6 +68,7 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
                         timeout_min=5,
                         slurm_partition="general",
                         exclude_nodes=None,
+                        pbar_update_freq=100
                       ):
     '''
     :param func: the kernel function to run, should take one argument, e.g. func(params)
@@ -69,7 +93,9 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
         if parallel_process_p_or_t == 't':
             def super_func(chunk):
                 def wrapper(p):
-                    return func(p)
+                    func(p)
+                    update_i(job_name,pbar_update_freq)
+
                 with ThreadPoolExecutor(max_workers=parallel_process_per_task) as Thread_:
                     list(Thread_.map(wrapper, chunk))
 
@@ -79,7 +105,9 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
                 #     func(p)
 
                 def wrapper(p):
-                    return func(p)
+                    func(p)
+                    update_i(job_name,pbar_update_freq)
+
                 pool = ProcessPool(nodes=parallel_process_per_task)
                 pool.map(wrapper, chunk)
             pass
@@ -113,10 +141,10 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
     info = {
         "Total Cores Used": cpus_per_task * slurm_array_parallelism,
         "Concurrent Processes": parallel_process_per_task * slurm_array_parallelism,
-        "Total Param Length": len(params_list),
+        "Total Loop Length": len(params_list),
         "Number of Jobs": len(final_params_list),
         "First Job ID": jobs[0].job_id,
-        "Memory GB":mem_gb,
+        "Memory for Each Job(GB)":mem_gb,
         "Time out Minutes For Each Job": timeout_min,
         "Partition":slurm_partition,
     }
@@ -338,32 +366,6 @@ def init_job(job_name,param_list):
     r.hset(job_name, 'step', str(0))
 
 
-_REDIS = None
-
-def get_redis():
-    global _REDIS
-    if _REDIS is None:
-        _REDIS = HPC_redis().conn_redis()
-    return _REDIS
-
-_LOCK = Lock()
-_LOCAL_COUNTER = 0
-
-def update_i(job_name, batch_size=100):
-    '''
-    :param job_name:
-    :param Hitting Redis service every batch_size times to reduce the frequency of hitting
-    '''
-    global _LOCAL_COUNTER
-
-    with _LOCK:
-        _LOCAL_COUNTER += 1
-
-        if _LOCAL_COUNTER >= batch_size:
-            r = get_redis()
-            r.hincrby(job_name, "step", _LOCAL_COUNTER)
-            _LOCAL_COUNTER = 0
-
 def flush_progress(job_name):
     global _LOCAL_COUNTER
 
@@ -412,10 +414,10 @@ def main():
     # progress_bar_monitoring(job_name)
 
     # check log
-    # log_folder = join(data_root,'HLS/Download/download_log')
-    # Check_logs(log_folder).read_err_files()
+    log_folder = join(data_root,'HLS/Download/download_log')
+    Check_logs(log_folder).read_err_files()
     # Check_logs(log_folder).read_out_files()
-
+    #
     pass
 
 if __name__ == '__main__':

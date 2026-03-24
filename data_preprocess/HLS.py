@@ -212,11 +212,11 @@ class Download:
         init_job(self.job_name,params_list)
         sumbit_jobs_array(self.kernel_download,params_list,log_folder,job_name=self.job_name,
                         job_number_limit=100,
-                        parallel_process_per_task=10,
+                        parallel_process_per_task=5,
                         slurm_array_parallelism=20,
-                        parallel_process_p_or_t='p',
-                        cpus_per_task=10,
-                        mem_gb=4,
+                        parallel_process_p_or_t='t',
+                        cpus_per_task=1,
+                        mem_gb=2,
                         timeout_min=10,
                         slurm_partition="general",
                         # slurm_partition="debug",
@@ -236,7 +236,7 @@ class Download:
         outf = join(outdir_i,url.split('/')[-1])
         if isfile(outf):
             if self.check_download_single_file(outf):
-                update_i(self.job_name)
+                # update_i(self.job_name)
                 return
             else:
                 print(f'download error, removing {outf}')
@@ -268,7 +268,7 @@ class Download:
                     print(f'error times {fail_time}: {url}')
                     print(e)
                     print('--------')
-        update_i(self.job_name)
+        # update_i(self.job_name)
 
 
     def download_i(self,outf,session,url):
