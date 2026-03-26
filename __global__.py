@@ -31,12 +31,12 @@ elif 'hpc.uconn' in computer_name:
     print('Platform: UCONN HPC')
     this_root = '/home/ygo26002/Project_data/Prithvi_AGB'
 else:
-    print('computer_name:',computer_name)
-    raise ValueError('computer_name not recognized')
+    print('Host Name:',computer_name)
+    raise ValueError('Host Name not recognized')
 
 
 print('this_root:', this_root)
-print('computer_name:', computer_name)
+print('Host Name:', computer_name)
 
 if not os.path.isdir(this_root):
     raise ValueError(f'working directory not found: {this_root}')

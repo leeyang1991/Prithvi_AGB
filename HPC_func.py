@@ -68,7 +68,7 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
                         timeout_min=5,
                         slurm_partition="general",
                         exclude_nodes=None,
-                        pbar_update_freq=100
+                        pbar_update_freq=1
                       ):
     '''
     :param func: the kernel function to run, should take one argument, e.g. func(params)
@@ -84,6 +84,7 @@ def sumbit_jobs_array(func,params_list,log_folder,job_name,
     :param timeout_min: timeout in minutes
     :param slurm_partition: slurm partition
     :param exclude_nodes: list of nodes to exclude
+    :param pbar_update_freq: frequency of updating progress bar
     '''
 
     if len(params_list) == 0:
@@ -414,9 +415,11 @@ def main():
     # progress_bar_monitoring(job_name)
 
     # check log
-    log_folder = join(data_root,'HLS/Download/download_log')
-    Check_logs(log_folder).read_err_files()
-    # Check_logs(log_folder).read_out_files()
+    # log_folder = join(data_root,'HLS/Download/download_log')
+    # log_folder = join('/home/ygo26002/Project_data/Prithvi_AGB/data/HLS/Preprocess/log/1.1_quality_control_long_term_mean')
+    log_folder = '/home/ygo26002/Project_data/Prithvi_AGB/data/HLS/Preprocess/log/1.2_mosaic_single_tile_and_merge_bands'
+    # Check_logs(log_folder).read_err_files()
+    Check_logs(log_folder).read_out_files()
     #
     pass
 

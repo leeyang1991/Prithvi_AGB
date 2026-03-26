@@ -43,8 +43,8 @@ class Download:
     def run(self):
         # self.kml_to_shp()
         # self.gen_urls()
-        self.download()
-        # self.check_download_number()
+        # self.download()
+        self.check_download_number()
         # self.check_download()
         # self.move_tile_to_different_folder()
         # self.delete_empty_folders()
@@ -212,7 +212,7 @@ class Download:
         init_job(self.job_name,params_list)
         sumbit_jobs_array(self.kernel_download,params_list,log_folder,job_name=self.job_name,
                         job_number_limit=100,
-                        parallel_process_per_task=5,
+                        parallel_process_per_task=10,
                         slurm_array_parallelism=20,
                         parallel_process_p_or_t='t',
                         cpus_per_task=1,
@@ -220,7 +220,7 @@ class Download:
                         timeout_min=10,
                         slurm_partition="general",
                         # slurm_partition="debug",
-                        exclude_nodes="cn[498]",
+                        exclude_nodes="cn[462]",
                           )
         progress_bar_monitoring(self.job_name)
 
@@ -375,9 +375,10 @@ class Preprocess_HLS:
         # self.gen_image_shp()
         # self.move_files_to_separate_year()
         # self.quality_control_long_term_mean() # 1.1
-        self.quality_control_annual_mean() # 1.1.1
-        # self.mosaic_single_tile_and_merge_bands() # 1.2
-        self.mosaic_single_tile_and_merge_bands_separate_year() # 1.2.1
+        #### self.check_quality_control_long_term_mean() # 1.1
+        # self.quality_control_annual_mean() # 1.1.1
+        self.mosaic_single_tile_and_merge_bands() # 1.2
+        # self.mosaic_single_tile_and_merge_bands_separate_year() # 1.2.1
         # self.re_proj_30m() # 1.3
         # self.mosaic_region() # 1.4
         # self.resample_30m_to_1km() # 1.5
@@ -470,10 +471,12 @@ class Preprocess_HLS:
         # 1.1
         # fdir = join(self.data_dir,'Downnload')
         # fdir = '/home/yangli/NVME4T/HLS_Download' # Ubuntu
-        fdir = '/Volumes/NVME2T/HLS_Download' # Mac
+        # fdir = '/Volumes/NVME2T/HLS_Download' # Mac
         # fdir = '/Volumes/NVME4T/HLS_Download' # Mac via Ubuntu
         njob = 30  # Ubuntu
         # njob = 8 # mac
+        # fdir = join(self.data_dir,'tiles')
+        fdir = join(data_root, 'HLS/Download/tiles')
         # for tile in T.listdir(fdir)[::-1]:
         #     print(tile)
         # exit()
@@ -513,7 +516,42 @@ class Preprocess_HLS:
                     params = [Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band]
                     params_list.append(params)
                     # self.kernel_quality_control_long_term_mean(params)
-        MULTIPROCESS(self.kernel_quality_control_long_term_mean,params_list).run(process=njob)
+        # MULTIPROCESS(self.kernel_quality_control_long_term_mean,params_list).run(process=njob)
+        job_name = 'quality_control'
+        log_folder = join(self.data_dir,'log/1.1_quality_control_long_term_mean')
+        init_job(job_name, params_list)
+        sumbit_jobs_array(self.kernel_quality_control_long_term_mean, params_list, log_folder, job_name=job_name,
+                          job_number_limit=1000,
+                          parallel_process_per_task=20,
+                          slurm_array_parallelism=50,
+                          parallel_process_p_or_t='p',
+                          cpus_per_task=22,
+                          mem_gb=40,
+                          timeout_min=100,
+                          slurm_partition="general",
+                          # slurm_partition="debug",
+                          exclude_nodes="cn[462]",
+                          pbar_update_freq=1,
+                          )
+        progress_bar_monitoring(job_name)
+
+
+    def check_quality_control_long_term_mean(self):
+        fdir = join(self.data_dir,'1.1_quality_control_long_term_mean')
+        number_dict = {}
+        for tile in T.listdir(fdir):
+            for band in T.listdir(join(fdir,tile)):
+                number = 0
+                for f in T.listdir(join(fdir,tile,band)):
+                    fpath = join(fdir,tile,band,f)
+                    number += 1
+                key = f'{tile}_{band}'
+                number_dict[key] = number
+        pprint(number_dict)
+
+
+        pass
+
 
     def kernel_quality_control_long_term_mean(self,params):
         Tif_loader_qa,idx,qa_filter_list,Tif_loader_band,outdir,tile,band = params
@@ -641,7 +679,25 @@ class Preprocess_HLS:
         for tile in T.listdir(fdir):
             params = [fdir,outdir,tile]
             params_list.append(params)
-        MULTIPROCESS(self.kernel_mosaic_single_tile_and_merge_bands,params_list).run(process=30)
+        # print(len(params_list))
+        # MULTIPROCESS(self.kernel_mosaic_single_tile_and_merge_bands,params_list).run(process=30)
+        job_name = 'mosaic'
+        log_folder = join(self.data_dir, 'log/1.2_mosaic_single_tile_and_merge_bands')
+        init_job(job_name, params_list)
+        sumbit_jobs_array(self.kernel_mosaic_single_tile_and_merge_bands, params_list, log_folder, job_name=job_name,
+                          job_number_limit=1,
+                          parallel_process_per_task=39,
+                          slurm_array_parallelism=1,
+                          parallel_process_p_or_t='p',
+                          cpus_per_task=40,
+                          mem_gb=40,
+                          timeout_min=100,
+                          slurm_partition="general",
+                          # slurm_partition="debug",
+                          exclude_nodes="cn[462,490,622]",
+                          pbar_update_freq=1,
+                          )
+        progress_bar_monitoring(job_name)
 
     def mosaic_single_tile_and_merge_bands_separate_year(self):
         # 1.2.1
@@ -802,8 +858,12 @@ class Preprocess_HLS:
         from shapely.geometry import Polygon
         import geopandas as gpd
         outdir = join(self.data_dir,'image_shp')
-        T.mkdir(outdir)
-        fdir = '/home/yangli/SSD4T/Prithvi_AGB/data/HLS/Download/tiles'
+        T.mkdir(outdir,1)
+        # fdir = '/home/yangli/SSD4T/Prithvi_AGB/data/HLS/Download/tiles'
+        fdir = join(data_root,'HLS/Download/tiles')
+        # print(fdir)
+        # print(isdir(fdir))
+        # exit()
         tile_list = []
         shp_flist = []
         for tile in T.listdir(fdir):
@@ -2094,8 +2154,8 @@ class RasterIO_Func:
 
 
 def main():
-    Download().run()
-    # Preprocess_HLS().run()
+    # Download().run()
+    Preprocess_HLS().run()
     # Preprocess_HLS_annual_mean().run()
     # Download_From_GEE_1km().run()
     pass
